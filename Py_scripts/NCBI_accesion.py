@@ -13,34 +13,28 @@ def get_accession(species, marker):
     try:
         query = f'"{species}"[Organism] AND {marker}'
 
-        handle = Entrez.esearch(
-            db="nucleotide",
-            term=query,
-            retmax=5
-        )
+        handle = Entrez.esearch(db="nucleotide", term=query, retmax=5)
         record = Entrez.read(handle)
         handle.close()
 
         if not record["IdList"]:
-            return None
+            return None, None
 
         handle = Entrez.esummary(
-            db="nucleotide",
-            id=",".join(record["IdList"])
-        )
+            db="nucleotide", id=",".join(record["IdList"]))
         summaries = Entrez.read(handle)
         handle.close()
 
-        # Return the first accession
         accession = summaries[0]["AccessionVersion"]
+        title = summaries[0]["Title"]
 
         time.sleep(0.35)
 
-        return accession
+        return accession, title
 
     except Exception as e:
         print(f"{species} ({marker}): {e}")
-        return None
+        return None, None
 
 
 markers = [
@@ -54,7 +48,11 @@ markers = [
 test_df = df.head(3)
 
 for marker in markers:
-    test_df[marker] = test_df["Name"].apply(
-        lambda species: get_accession(species, marker))
+    test_df[[f"{marker}_accession", f"{marker}_title"]] = (
+        test_df["Name"]
+        .apply(lambda species: get_accession(species, marker))
+        .apply(pd.Series)
+    )
+
 
 print(test_df)
