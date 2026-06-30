@@ -4,8 +4,11 @@ from Bio import Entrez, SeqIO
 import pandas as pd
 import time
 
-Entrez.email = "your_email@example.com"
-Entrez.api_key = "YOUR_API_KEY"
+# -----------------------------
+# NCBI SETTINGS
+# -----------------------------
+Entrez.email = "samadmalikg@gmail.com"
+Entrez.api_key = "a9543111711b0671e59f806f680529ff4607"
 
 df = None
 output_df = None
@@ -56,7 +59,11 @@ def score_record(record, w, bad_words):
             break
 
     if source:
-        location = source.get("geo_loc_name", source.get("country", [""]))[0]
+        location = source.get(
+            "geo_loc_name",
+            source.get("country", [""])
+        )[0]
+
         group = detect_country_group(location)
         score += w.get(group, 0)
 
@@ -64,19 +71,25 @@ def score_record(record, w, bad_words):
 
 
 # -----------------------------
-# FETCH
+# FETCH + RANKING
 # -----------------------------
 def get_accession(species, marker, sleep_time, w, bad_words):
 
     try:
         query = f'"{species}"[Organism] AND {marker}'
+        print("Query:", query)
 
-        handle = Entrez.esearch(db="nucleotide", term=query, retmax=10)
+        handle = Entrez.esearch(
+            db="nucleotide",
+            term=query,
+            retmax=10
+        )
+
         rec = Entrez.read(handle)
         handle.close()
 
         if not rec["IdList"]:
-            return (None,) * 4
+            return (None,) * 9
 
         best = None
         best_score = -999
@@ -100,26 +113,63 @@ def get_accession(species, marker, sleep_time, w, bad_words):
                     best_score = sc
                     best = gb
 
-            except:
+            except Exception as e:
+                print("efetch error:", e)
                 continue
 
-        return best.id, best.description, len(best.seq), best_score
+        if best is None:
+            return (None,) * 9
+
+        # -----------------------------
+        # METADATA EXTRACTION
+        # -----------------------------
+        organism = best.annotations.get("organism")
+
+        geo_loc = None
+        lat_lon = None
+        collection_date = None
+        voucher = None
+
+        for feature in best.features:
+            if feature.type != "source":
+                continue
+
+            q = feature.qualifiers
+
+            geo_loc = q.get("geo_loc_name", q.get("country", [None]))[0]
+            lat_lon = q.get("lat_lon", [None])[0]
+            collection_date = q.get("collection_date", [None])[0]
+            voucher = q.get("specimen_voucher", [None])[0]
+            break
+
+        time.sleep(sleep_time)
+
+        return (
+            best.id,
+            best.description,
+            len(best.seq),
+            organism,
+            geo_loc,
+            lat_lon,
+            collection_date,
+            voucher,
+            best_score
+        )
 
     except Exception as e:
         print(e)
-        return (None,) * 4
+        return (None,) * 9
 
 
 # -----------------------------
-# GUI
+# GUI SETUP
 # -----------------------------
 ctk.set_appearance_mode("dark")
 app = ctk.CTk()
-app.geometry("1150x780")
+app.geometry("1200x800")
 app.title("NCBI Scoring Engine")
 
 
-# PANELS
 left = ctk.CTkFrame(app)
 left.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
@@ -128,7 +178,7 @@ right.pack(side="right", fill="y", padx=10, pady=10)
 
 
 # -----------------------------
-# FILE
+# FILE LOADER
 # -----------------------------
 file_path = ctk.StringVar()
 
@@ -145,7 +195,7 @@ ctk.CTkLabel(left, textvariable=file_path).pack()
 
 
 # -----------------------------
-# INPUT AREA (SIDE-BY-SIDE)
+# INPUT AREA
 # -----------------------------
 input_frame = ctk.CTkFrame(left)
 input_frame.pack(pady=10, fill="x")
@@ -163,6 +213,7 @@ bad_frame.pack(side="right", fill="both", expand=True, padx=5)
 ctk.CTkLabel(markers_frame, text="Markers").pack()
 
 marker_vars = {}
+
 for m in ["ITS", "ITS1", "ITS2", "rbcL", "matK", "trnL", "psbA-trnH"]:
     v = ctk.BooleanVar()
     marker_vars[m] = v
@@ -170,11 +221,10 @@ for m in ["ITS", "ITS1", "ITS2", "rbcL", "matK", "trnL", "psbA-trnH"]:
 
 extra_markers = ctk.CTkEntry(markers_frame)
 extra_markers.pack()
-extra_markers.insert(0, "extra markers")
 
 
 # -----------------------------
-# BAD WORDS (NOW NEXT TO MARKERS)
+# BAD WORDS
 # -----------------------------
 ctk.CTkLabel(bad_frame, text="Bad words").pack()
 
@@ -191,7 +241,6 @@ for w, v in bad_words_default.items():
 
 extra_bad = ctk.CTkEntry(bad_frame)
 extra_bad.pack()
-extra_bad.insert(0, "extra bad words")
 
 
 # -----------------------------
@@ -203,7 +252,7 @@ sleep_entry.pack(pady=5)
 
 
 # -----------------------------
-# SLIDERS (RIGHT SIDE)
+# SLIDERS
 # -----------------------------
 ctk.CTkLabel(right, text="SCORING", font=("Arial", 18)).pack(pady=10)
 
@@ -266,7 +315,7 @@ def run():
 
     sleep_time = float(sleep_entry.get())
 
-    test = df.head(3).copy()
+    test = df.copy()
 
     for marker in markers:
 
@@ -280,6 +329,11 @@ def run():
             f"{marker}_accession",
             f"{marker}_title",
             f"{marker}_length",
+            f"{marker}_organism",
+            f"{marker}_geo_loc",
+            f"{marker}_lat_lon",
+            f"{marker}_collection_date",
+            f"{marker}_voucher",
             f"{marker}_score"
         ]
 
@@ -300,6 +354,5 @@ def save():
 
 
 ctk.CTkButton(left, text="SAVE", command=save).pack()
-
 
 app.mainloop()
