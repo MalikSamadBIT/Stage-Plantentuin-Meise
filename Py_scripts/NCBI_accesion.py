@@ -18,7 +18,6 @@ output_df = None
 # COUNTRY GROUPING
 # -----------------------------
 def detect_country_group(location: str):
-
     location = (location or "").lower()
 
     if any(x in location for x in ["belgium", "belgië", "belgique"]):
@@ -42,7 +41,6 @@ def detect_country_group(location: str):
 # SCORING
 # -----------------------------
 def score_record(record, w, bad_words):
-
     score = 0
     title = record.description.lower()
 
@@ -59,11 +57,7 @@ def score_record(record, w, bad_words):
             break
 
     if source:
-        location = source.get(
-            "geo_loc_name",
-            source.get("country", [""])
-        )[0]
-
+        location = source.get("geo_loc_name", source.get("country", [""]))[0]
         group = detect_country_group(location)
         score += w.get(group, 0)
 
@@ -71,7 +65,7 @@ def score_record(record, w, bad_words):
 
 
 # -----------------------------
-# FETCH + RANKING
+# FETCH
 # -----------------------------
 def get_accession(species, marker, sleep_time, w, bad_words):
 
@@ -79,12 +73,7 @@ def get_accession(species, marker, sleep_time, w, bad_words):
         query = f'"{species}"[Organism] AND {marker}'
         print("Query:", query)
 
-        handle = Entrez.esearch(
-            db="nucleotide",
-            term=query,
-            retmax=10
-        )
-
+        handle = Entrez.esearch(db="nucleotide", term=query, retmax=10)
         rec = Entrez.read(handle)
         handle.close()
 
@@ -95,7 +84,6 @@ def get_accession(species, marker, sleep_time, w, bad_words):
         best_score = -999
 
         for uid in rec["IdList"]:
-
             try:
                 handle = Entrez.efetch(
                     db="nucleotide",
@@ -120,9 +108,6 @@ def get_accession(species, marker, sleep_time, w, bad_words):
         if best is None:
             return (None,) * 9
 
-        # -----------------------------
-        # METADATA EXTRACTION
-        # -----------------------------
         organism = best.annotations.get("organism")
 
         geo_loc = None
@@ -131,16 +116,13 @@ def get_accession(species, marker, sleep_time, w, bad_words):
         voucher = None
 
         for feature in best.features:
-            if feature.type != "source":
-                continue
-
-            q = feature.qualifiers
-
-            geo_loc = q.get("geo_loc_name", q.get("country", [None]))[0]
-            lat_lon = q.get("lat_lon", [None])[0]
-            collection_date = q.get("collection_date", [None])[0]
-            voucher = q.get("specimen_voucher", [None])[0]
-            break
+            if feature.type == "source":
+                q = feature.qualifiers
+                geo_loc = q.get("geo_loc_name", q.get("country", [None]))[0]
+                lat_lon = q.get("lat_lon", [None])[0]
+                collection_date = q.get("collection_date", [None])[0]
+                voucher = q.get("specimen_voucher", [None])[0]
+                break
 
         time.sleep(sleep_time)
 
@@ -165,21 +147,36 @@ def get_accession(species, marker, sleep_time, w, bad_words):
 # GUI SETUP
 # -----------------------------
 ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
+
 app = ctk.CTk()
-app.geometry("1200x800")
+app.geometry("1250x820")
 app.title("NCBI Scoring Engine")
 
 
-left = ctk.CTkFrame(app)
-left.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+# =============================
+# LEFT PANEL (SCROLLABLE)
+# =============================
+left_container = ctk.CTkFrame(app)
+left_container.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
-right = ctk.CTkFrame(app)
+scroll = ctk.CTkScrollableFrame(left_container)
+scroll.pack(fill="both", expand=True)
+
+
+# =============================
+# RIGHT PANEL (SCORING)
+# =============================
+right = ctk.CTkFrame(app, width=320)
 right.pack(side="right", fill="y", padx=10, pady=10)
 
 
-# -----------------------------
-# FILE LOADER
-# -----------------------------
+# =============================
+# FILE SECTION
+# =============================
+ctk.CTkLabel(scroll, text="📁 FILE INPUT", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(5, 2))
+
 file_path = ctk.StringVar()
 
 
@@ -190,43 +187,43 @@ def load():
     df = pd.read_csv(path)
 
 
-ctk.CTkButton(left, text="Select CSV", command=load).pack()
-ctk.CTkLabel(left, textvariable=file_path).pack()
+ctk.CTkButton(scroll, text="Select CSV File",
+              command=load).pack(fill="x", pady=5)
+ctk.CTkLabel(scroll, textvariable=file_path).pack(anchor="w", pady=(0, 10))
 
 
-# -----------------------------
-# INPUT AREA
-# -----------------------------
-input_frame = ctk.CTkFrame(left)
-input_frame.pack(pady=10, fill="x")
+# =============================
+# MARKERS + BAD WORDS SIDE BY SIDE
+# =============================
+input_frame = ctk.CTkFrame(scroll)
+input_frame.pack(fill="x", pady=10)
 
 markers_frame = ctk.CTkFrame(input_frame)
-markers_frame.pack(side="left", fill="both", expand=True, padx=5)
+markers_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
 bad_frame = ctk.CTkFrame(input_frame)
-bad_frame.pack(side="right", fill="both", expand=True, padx=5)
+bad_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
 
 
-# -----------------------------
 # MARKERS
-# -----------------------------
-ctk.CTkLabel(markers_frame, text="Markers").pack()
+ctk.CTkLabel(markers_frame, text="Markers", font=(
+    "Arial", 14, "bold")).pack(anchor="w")
 
 marker_vars = {}
-
 for m in ["ITS", "ITS1", "ITS2", "rbcL", "matK", "trnL", "psbA-trnH"]:
     v = ctk.BooleanVar()
     marker_vars[m] = v
     ctk.CTkCheckBox(markers_frame, text=m, variable=v).pack(anchor="w")
 
+ctk.CTkLabel(markers_frame, text="Extra markers (comma separated)").pack(
+    anchor="w", pady=(10, 0))
 extra_markers = ctk.CTkEntry(markers_frame)
-extra_markers.pack()
+extra_markers.pack(fill="x", pady=5)
 
 
-# -----------------------------
 # BAD WORDS
-# -----------------------------
-ctk.CTkLabel(bad_frame, text="Bad words").pack()
+ctk.CTkLabel(bad_frame, text="Filters", font=(
+    "Arial", 14, "bold")).pack(anchor="w")
 
 bad_words_default = {
     "whole genome": ctk.BooleanVar(value=True),
@@ -239,42 +236,45 @@ bad_words_default = {
 for w, v in bad_words_default.items():
     ctk.CTkCheckBox(bad_frame, text=w, variable=v).pack(anchor="w")
 
+ctk.CTkLabel(bad_frame, text="Extra bad words").pack(anchor="w", pady=(10, 0))
 extra_bad = ctk.CTkEntry(bad_frame)
-extra_bad.pack()
+extra_bad.pack(fill="x", pady=5)
 
 
-# -----------------------------
-# OTHER INPUTS
-# -----------------------------
-sleep_entry = ctk.CTkEntry(left)
+# =============================
+# SETTINGS
+# =============================
+ctk.CTkLabel(scroll, text="⚙ SETTINGS", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
+
+sleep_entry = ctk.CTkEntry(scroll)
 sleep_entry.insert(0, "0.35")
-sleep_entry.pack(pady=5)
+sleep_entry.pack(fill="x", pady=5)
 
 
-# -----------------------------
-# SLIDERS
-# -----------------------------
-ctk.CTkLabel(right, text="SCORING", font=("Arial", 18)).pack(pady=10)
+# =============================
+# SCORING SLIDERS
+# =============================
+ctk.CTkLabel(right, text="📊 SCORING", font=("Arial", 18, "bold")).pack(pady=10)
 
 
 def slider(label, default):
-
     frame = ctk.CTkFrame(right)
-    frame.pack(pady=8)
+    frame.pack(fill="x", pady=8, padx=10)
 
-    ctk.CTkLabel(frame, text=label).pack()
+    ctk.CTkLabel(frame, text=label).pack(anchor="w")
 
-    val = ctk.CTkLabel(frame, text=str(default))
-    val.pack()
+    value = ctk.CTkLabel(frame, text=str(default))
+    value.pack(anchor="w")
 
     s = ctk.CTkSlider(frame, from_=0, to=100)
     s.set(default)
 
     def update(v):
-        val.configure(text=str(int(float(v))))
+        value.configure(text=str(int(float(v))))
 
     s.configure(command=update)
-    s.pack()
+    s.pack(fill="x")
 
     return s
 
@@ -286,11 +286,10 @@ length_s = slider("Length bonus", 10)
 bad_penalty_s = slider("Bad penalty", 100)
 
 
-# -----------------------------
-# RUN
-# -----------------------------
+# =============================
+# RUN / SAVE
+# =============================
 def run():
-
     global df, output_df
 
     if df is None:
@@ -318,7 +317,6 @@ def run():
     test = df.copy()
 
     for marker in markers:
-
         print("Processing", marker)
 
         results = test["Name"].apply(
@@ -343,9 +341,6 @@ def run():
     print(test)
 
 
-ctk.CTkButton(left, text="RUN", command=run).pack(pady=10)
-
-
 def save():
     global output_df
     if output_df is not None:
@@ -353,6 +348,9 @@ def save():
         output_df.to_csv(path, index=False)
 
 
-ctk.CTkButton(left, text="SAVE", command=save).pack()
+ctk.CTkButton(scroll, text="▶ RUN ANALYSIS",
+              command=run).pack(fill="x", pady=10)
+ctk.CTkButton(scroll, text="💾 SAVE CSV", command=save).pack(fill="x", pady=5)
+
 
 app.mainloop()
