@@ -46,7 +46,7 @@ markers = [
     "psbA-trnH"
 ]
 
-test_df = df.head(10)
+test_df = df.head(5)
 
 for marker in markers:
     test_df[[f"{marker}_accession", f"{marker}_title"]] = (
