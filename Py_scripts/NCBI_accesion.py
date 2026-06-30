@@ -7,6 +7,7 @@ df = pd.read_csv("B:\Stage\Floralijst")
 # print(df.head())
 
 Entrez.email = "samadmalikg@gmail.com"
+Entrez.api_key = "a9543111711b0671e59f806f680529ff4607"
 
 
 def get_accession(species, marker):
@@ -45,7 +46,7 @@ markers = [
     "psbA-trnH"
 ]
 
-test_df = df.head(3)
+test_df = df.head(10)
 
 for marker in markers:
     test_df[[f"{marker}_accession", f"{marker}_title"]] = (
@@ -55,4 +56,5 @@ for marker in markers:
     )
 
 
+# test_df.to_excel("testacce.xlsx")
 print(test_df)
