@@ -291,7 +291,7 @@ progress_label.pack(fill="x", pady=(15, 5))
 
 time_label = ctk.CTkLabel(
     scroll,
-    text="Estimated remaining time: --"
+    text="Estimated time per sample: --"
 )
 time_label.pack(fill="x")
 
@@ -390,7 +390,7 @@ def run_search():
             app.after(
                 0,
                 lambda m=mins, s=secs: time_label.configure(
-                    text=f"Estimated remaining: {m}m {s}s"
+                    text=f"Estimated time per sample: {m}m {s}s"
                 )
             )
 
@@ -412,7 +412,7 @@ def run_search():
                 0,
                 lambda:
                     time_label.configure(
-                        text=f"Estimated remaining: {mins}m {secs}s"
+                        text=f"Estimated time per sample: {mins}m {secs}s"
                     )
             )
 
@@ -437,7 +437,7 @@ def run_search():
         progress.set(1)
 
         time_label.configure(
-            text="Estimated remaining: 0s"
+            text="Estimated time per sample: 0s"
         )
 
     print(test)
@@ -460,7 +460,7 @@ def run_search():
     app.after(
         0,
         lambda: time_label.configure(
-            text="Estimated remaining: 0s"
+            text="Estimated time per sample: 0s"
         )
     )
 
