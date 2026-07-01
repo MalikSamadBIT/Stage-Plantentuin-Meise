@@ -275,7 +275,26 @@ length_s = slider("Length bonus", 10)
 bad_penalty_s = slider("Bad penalty", 100)
 
 
+# PROGRESS BAR-------------------------------------------------------------------------------
+
+progress_label = ctk.CTkLabel(
+    scroll,
+    text="Ready"
+)
+progress_label.pack(fill="x", pady=(15, 5))
+
+time_label = ctk.CTkLabel(
+    scroll,
+    text="Estimated remaining: --"
+)
+time_label.pack(fill="x")
+
+progress = ctk.CTkProgressBar(scroll)
+progress.pack(fill="x", pady=10)
+
+progress.set(0)
 # RUN AND SAVE----------------------------------------------------------------------------------
+
 
 def run():
     global df, output_df
@@ -304,12 +323,53 @@ def run():
 
     test = df.copy()
 
+    total_jobs = len(test) * len(markers)
+    completed = 0
+
+    start_time = time.time()
+
     for marker in markers:
         print("Processing", marker)
 
-        results = test["Name"].apply(
-            lambda s: get_accession(s, marker, sleep_time, w, bad_words)
-        ).apply(pd.Series)
+        rows = []
+
+        for species in test["Name"]:
+
+            rows.append(
+                get_accession(
+                    species,
+                    marker,
+                    sleep_time,
+                    w,
+                    bad_words
+                )
+            )
+
+            completed += 1
+
+            # Update progress bar
+            progress.set(completed / total_jobs)
+
+            elapsed = time.time() - start_time
+
+            avg = elapsed / completed
+
+            remaining = avg * (total_jobs - completed)
+
+            mins = int(remaining // 60)
+            secs = int(remaining % 60)
+
+            progress_label.configure(
+                text=f"{completed}/{total_jobs} searches completed"
+            )
+
+            time_label.configure(
+                text=f"Estimated remaining: {mins}m {secs}s"
+            )
+
+            app.update()
+
+        results = pd.DataFrame(rows)
 
         results.columns = [
             f"{marker}_accession",
@@ -325,7 +385,18 @@ def run():
 
         test = pd.concat([test, results], axis=1)
 
-    output_df = test
+        output_df = test
+
+        progress.set(1)
+
+        progress_label.configure(
+            text="Finished!"
+        )
+
+        time_label.configure(
+            text="Estimated remaining: 0s"
+        )
+
     print(test)
 
 
