@@ -4,9 +4,9 @@ from Bio import Entrez, SeqIO
 import pandas as pd
 import time
 
-# -----------------------------
-# NCBI SETTINGS
-# -----------------------------
+
+# NCBI SETTINGS-------------------------------------------
+
 Entrez.email = "samadmalikg@gmail.com"
 Entrez.api_key = "a9543111711b0671e59f806f680529ff4607"
 
@@ -14,9 +14,8 @@ df = None
 output_df = None
 
 
-# -----------------------------
-# COUNTRY GROUPING
-# -----------------------------
+# COUNTRY GROUPING-----------------------------------------
+
 def detect_country_group(location: str):
     location = (location or "").lower()
 
@@ -37,9 +36,8 @@ def detect_country_group(location: str):
     return "unknown"
 
 
-# -----------------------------
-# SCORING
-# -----------------------------
+# SCORING-----------------------------------------------
+
 def score_record(record, w, bad_words):
     score = 0
     title = record.description.lower()
@@ -64,9 +62,8 @@ def score_record(record, w, bad_words):
     return score
 
 
-# -----------------------------
-# FETCH
-# -----------------------------
+# FETCHIGN FROM NCBI------------------------------------
+
 def get_accession(species, marker, sleep_time, w, bad_words):
 
     try:
@@ -143,20 +140,17 @@ def get_accession(species, marker, sleep_time, w, bad_words):
         return (None,) * 9
 
 
-# -----------------------------
-# GUI SETUP
-# -----------------------------
+# GUI SETUP---------------------------------------
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
 app = ctk.CTk()
 app.geometry("1250x820")
-app.title("NCBI Scoring Engine")
+app.title("NCBI ID Scoring ")
 
 
-# =============================
-# LEFT PANEL (SCROLLABLE)
-# =============================
+# LEFT PANEL--------------------------------------------------------
+
 left_container = ctk.CTkFrame(app)
 left_container.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
@@ -164,16 +158,14 @@ scroll = ctk.CTkScrollableFrame(left_container)
 scroll.pack(fill="both", expand=True)
 
 
-# =============================
-# RIGHT PANEL (SCORING)
-# =============================
+# RIGHT PANEL (scoring)----------------------------------------------
+
 right = ctk.CTkFrame(app, width=320)
 right.pack(side="right", fill="y", padx=10, pady=10)
 
 
-# =============================
-# FILE SECTION
-# =============================
+# FILE SECTION----------------------------------------------------------
+
 ctk.CTkLabel(scroll, text="📁 FILE INPUT", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(5, 2))
 
@@ -192,9 +184,8 @@ ctk.CTkButton(scroll, text="Select CSV File",
 ctk.CTkLabel(scroll, textvariable=file_path).pack(anchor="w", pady=(0, 10))
 
 
-# =============================
-# MARKERS + BAD WORDS SIDE BY SIDE
-# =============================
+# MARKERS + BAD WORDS-----------------------------------------------------------------
+
 input_frame = ctk.CTkFrame(scroll)
 input_frame.pack(fill="x", pady=10)
 
@@ -241,9 +232,8 @@ extra_bad = ctk.CTkEntry(bad_frame)
 extra_bad.pack(fill="x", pady=5)
 
 
-# =============================
-# SETTINGS
-# =============================
+# SETTINGS-----------------------------------------------------------------------------
+
 ctk.CTkLabel(scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
 
@@ -252,9 +242,8 @@ sleep_entry.insert(0, "0.35")
 sleep_entry.pack(fill="x", pady=5)
 
 
-# =============================
-# SCORING SLIDERS
-# =============================
+# SCORING SLIDERS----------------------------------------------------------------------------
+
 ctk.CTkLabel(right, text="📊 SCORING", font=("Arial", 18, "bold")).pack(pady=10)
 
 
@@ -286,9 +275,8 @@ length_s = slider("Length bonus", 10)
 bad_penalty_s = slider("Bad penalty", 100)
 
 
-# =============================
-# RUN / SAVE
-# =============================
+# RUN AND SAVE----------------------------------------------------------------------------------
+
 def run():
     global df, output_df
 
