@@ -3,6 +3,7 @@ from tkinter import filedialog
 from Bio import Entrez, SeqIO
 import pandas as pd
 import time
+import threading
 
 
 # NCBI SETTINGS-------------------------------------------
@@ -276,6 +277,11 @@ bad_penalty_s = slider("Bad penalty", 100)
 
 
 # PROGRESS BAR-------------------------------------------------------------------------------
+status_label = ctk.CTkLabel(
+    scroll,
+    text="Idle"
+)
+status_label.pack(fill="x", pady=(15, 5))
 
 progress_label = ctk.CTkLabel(
     scroll,
@@ -285,7 +291,7 @@ progress_label.pack(fill="x", pady=(15, 5))
 
 time_label = ctk.CTkLabel(
     scroll,
-    text="Estimated remaining: --"
+    text="Estimated remaining time: --"
 )
 time_label.pack(fill="x")
 
@@ -296,7 +302,20 @@ progress.set(0)
 # RUN AND SAVE----------------------------------------------------------------------------------
 
 
-def run():
+def run_search():
+
+    app.after(
+        0,
+        lambda: run_button.configure(state="disabled")
+    )
+
+    app.after(
+        0,
+        lambda: status_label.configure(
+            text="Searching..."
+        )
+    )
+
     global df, output_df
 
     if df is None:
@@ -347,27 +366,55 @@ def run():
 
             completed += 1
 
-            # Update progress bar
-            progress.set(completed / total_jobs)
-
             elapsed = time.time() - start_time
 
-            avg = elapsed / completed
+            avg_time = elapsed / completed
 
-            remaining = avg * (total_jobs - completed)
+            remaining = avg_time * (total_jobs - completed)
 
             mins = int(remaining // 60)
             secs = int(remaining % 60)
 
-            progress_label.configure(
-                text=f"{completed}/{total_jobs} searches completed"
+            app.after(
+                0,
+                lambda p=completed / total_jobs: progress.set(p)
             )
 
-            time_label.configure(
-                text=f"Estimated remaining: {mins}m {secs}s"
+            app.after(
+                0,
+                lambda c=completed: progress_label.configure(
+                    text=f"{c}/{total_jobs} completed"
+                )
             )
 
-            app.update()
+            app.after(
+                0,
+                lambda m=mins, s=secs: time_label.configure(
+                    text=f"Estimated remaining: {m}m {s}s"
+                )
+            )
+
+            # Update progress bar
+            app.after(
+                0,
+                lambda p=completed/total_jobs: progress.set(p)
+            )
+
+            app.after(
+                0,
+                lambda c=completed:
+                progress_label.configure(
+                    text=f"{c}/{total_jobs} completed"
+                )
+            )
+
+            app.after(
+                0,
+                lambda:
+                    time_label.configure(
+                        text=f"Estimated remaining: {mins}m {secs}s"
+                    )
+            )
 
         results = pd.DataFrame(rows)
 
@@ -399,6 +446,30 @@ def run():
 
     print(test)
 
+    app.after(
+        0,
+        lambda: run_button.configure(state="normal")
+    )
+
+    app.after(
+        0,
+        lambda: status_label.configure(
+            text="Finished!"
+        )
+    )
+
+    app.after(
+        0,
+        lambda: progress.set(1)
+    )
+
+    app.after(
+        0,
+        lambda: time_label.configure(
+            text="Estimated remaining: 0 s"
+        )
+    )
+
 
 def save():
     global output_df
@@ -407,8 +478,23 @@ def save():
         output_df.to_csv(path, index=False)
 
 
-ctk.CTkButton(scroll, text="▶ RUN ANALYSIS",
-              command=run).pack(fill="x", pady=10)
+def start_run():
+
+    thread = threading.Thread(
+        target=run_search,
+        daemon=True
+    )
+
+    thread.start()
+
+
+run_button = ctk.CTkButton(
+    scroll,
+    text="▶ RUN ANALYSIS",
+    command=start_run
+)
+
+run_button.pack(fill="x", pady=10)
 ctk.CTkButton(scroll, text="💾 SAVE CSV", command=save).pack(fill="x", pady=5)
 
 
