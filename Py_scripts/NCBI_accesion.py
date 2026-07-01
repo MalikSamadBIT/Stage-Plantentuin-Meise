@@ -40,27 +40,61 @@ def detect_country_group(location: str):
 # SCORING-----------------------------------------------
 
 def score_record(record, w, bad_words):
-    score = 0
+
+    raw = 0
+
     title = record.description.lower()
 
+    # -------------------
+    # 1. BAD TITLE FILTER
+    # -------------------
     if any(b in title for b in bad_words):
-        score -= w["bad_title_penalty"]
+        raw -= 100
 
-    if 300 <= len(record.seq) <= 1200:
-        score += w["length_bonus"]
+    # -------------------
+    # 2. LENGTH QUALITY
+    # -------------------
+    length = len(record.seq)
 
+    if 300 <= length <= 1200:
+        length_score = 30
+    elif 200 <= length < 300 or 1200 < length <= 2000:
+        length_score = 15
+    else:
+        length_score = 0
+
+    # -------------------
+    # 3. LOCATION SCORE
+    # -------------------
     source = None
     for f in record.features:
         if f.type == "source":
             source = f.qualifiers
             break
 
-    if source:
-        location = source.get("geo_loc_name", source.get("country", [""]))[0]
-        group = detect_country_group(location)
-        score += w.get(group, 0)
+    location_score = 0
 
-    return score
+    if source:
+        location = source.get(
+            "geo_loc_name",
+            source.get("country", [""])
+        )[0].lower()
+
+        group = detect_country_group(location)
+        location_score = w.get(group, 0)
+
+    # -------------------
+    # 4. NORMALISE EVERYTHING
+    # -------------------
+    max_location = max(w.values()) if w else 40
+
+    location_norm = (location_score / max_location) * 40
+    length_norm = length_score
+    penalty_norm = max(0, 30 - abs(raw) / 5)
+
+    final_score = location_norm + length_norm + penalty_norm
+
+    return round(final_score, 2)
 
 
 # FETCHIGN FROM NCBI------------------------------------
