@@ -436,10 +436,6 @@ def run_search():
 
         progress.set(1)
 
-        progress_label.configure(
-            text="Finished!"
-        )
-
         time_label.configure(
             text="Estimated remaining: 0s"
         )
@@ -453,9 +449,7 @@ def run_search():
 
     app.after(
         0,
-        lambda: status_label.configure(
-            text="Finished!"
-        )
+        lambda: status_label.configure(text="Finished!")
     )
 
     app.after(
@@ -466,7 +460,7 @@ def run_search():
     app.after(
         0,
         lambda: time_label.configure(
-            text="Estimated remaining: 0 s"
+            text="Estimated remaining: 0s"
         )
     )
 
