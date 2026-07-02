@@ -24,19 +24,20 @@ df_accessions = df.filter(name_and_markers, axis=1)
 # print(df_accessions)
 
 # the loop for the indeviduel accession number to get the fasta----------------------------------------
-df_fasta = pd.DataFrame()
+rows = []
 
 for i, row in df_accessions.iterrows():
-    temp = [row['Name']]
+    entry = {'Name': row['Name']}
     for marker in markers:
-        temp.append(marker)
         if pd.notna(row[marker]):
             handle = Entrez.efetch(
                 db="nucleotide", id=row[marker], rettype='fasta')
-            # print(handle.read())
-            temp.append(handle.read())
+            entry[marker] = handle.read()
         else:
-            temp.append("")
-    # print(temp)
-    temp = pd.DataFrame(temp)
-    df_fasta = pd.concat([df_fasta, temp])
+            entry[marker] = ""
+    rows.append(entry)
+
+df_fasta = pd.DataFrame(rows, columns=name_and_markers)
+
+df_fasta.to_csv("B:\Stage\\fastatest_result.csv")
+df_fasta.to_excel("B:\Stage\\fastaxtest_result.xlsx")
