@@ -45,15 +45,13 @@ def score_record(record, w, bad_words):
 
     title = record.description.lower()
 
-    # -------------------
-    # 1. BAD TITLE FILTER
-    # -------------------
+    # 1.TITLE FILTER
+
     if any(b in title for b in bad_words):
         raw -= 100
 
-    # -------------------
-    # 2. LENGTH QUALITY
-    # -------------------
+    # 2.LENGTH
+
     length = len(record.seq)
 
     if 300 <= length <= 1200:
@@ -63,9 +61,8 @@ def score_record(record, w, bad_words):
     else:
         length_score = 0
 
-    # -------------------
-    # 3. LOCATION SCORE
-    # -------------------
+    # 3.LOCATION
+
     source = None
     for f in record.features:
         if f.type == "source":
@@ -83,9 +80,8 @@ def score_record(record, w, bad_words):
         group = detect_country_group(location)
         location_score = w.get(group, 0)
 
-    # -------------------
-    # 4. NORMALISE EVERYTHING
-    # -------------------
+    # 4 NORMALISE score
+
     max_location = max(w.values()) if w else 40
 
     location_norm = (location_score / max_location) * 40
