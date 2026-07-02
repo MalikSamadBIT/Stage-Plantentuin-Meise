@@ -201,6 +201,7 @@ ctk.CTkLabel(scroll, text="📁 FILE INPUT", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(5, 2))
 
 file_path = ctk.StringVar()
+output_path = ctk.StringVar()
 
 
 def load():
@@ -210,9 +211,21 @@ def load():
     df = pd.read_csv(path)
 
 
+def choose_output():
+    path = filedialog.asksaveasfilename(
+        defaultextension=".csv",
+        filetypes=[("CSV", "*.csv")]
+    )
+    output_path.set(path)
+
+
 ctk.CTkButton(scroll, text="Select CSV File",
               command=load).pack(fill="x", pady=5)
 ctk.CTkLabel(scroll, textvariable=file_path).pack(anchor="w", pady=(0, 10))
+
+ctk.CTkButton(scroll, text="Select Output File",
+              command=choose_output).pack(fill="x", pady=5)
+ctk.CTkLabel(scroll, textvariable=output_path).pack(anchor="w", pady=(0, 10))
 
 
 # MARKERS + BAD WORDS-----------------------------------------------------------------
@@ -348,7 +361,17 @@ def run_search():
 
     global df, output_df
 
-    if df is None:
+    if df is None or not output_path.get():
+        app.after(
+            0,
+            lambda: status_label.configure(
+                text="Select an input and output file first!"
+            )
+        )
+        app.after(
+            0,
+            lambda: run_button.configure(state="normal")
+        )
         return
 
     markers = [m for m, v in marker_vars.items() if v.get()]
@@ -472,6 +495,8 @@ def run_search():
 
     print(test)
 
+    output_df.to_csv(output_path.get(), index=False)
+
     app.after(
         0,
         lambda: run_button.configure(state="normal")
@@ -479,7 +504,7 @@ def run_search():
 
     app.after(
         0,
-        lambda: status_label.configure(text="Finished!")
+        lambda: status_label.configure(text="Finished! Saved to output file.")
     )
 
     app.after(
