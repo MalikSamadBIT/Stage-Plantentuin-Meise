@@ -4,6 +4,7 @@ from Bio import Entrez, SeqIO
 import pandas as pd
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # NCBI SETTINGS-------------------------------------------
@@ -13,6 +14,28 @@ Entrez.api_key = "a9543111711b0671e59f806f680529ff4607"
 
 df = None
 output_df = None
+
+
+# RATE LIMITER-----------------------------------------------
+# Enforces a global minimum gap between NCBI requests, shared across
+# all worker threads, so concurrency can't burst past NCBI's rate cap.
+
+class RateLimiter:
+
+    def __init__(self, min_interval):
+        self.min_interval = min_interval
+        self.lock = threading.Lock()
+        self.last_call = 0.0
+
+    def wait(self):
+        with self.lock:
+            now = time.time()
+            sleep_for = self.min_interval - (now - self.last_call)
+
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+
+            self.last_call = time.time()
 
 
 # COUNTRY GROUPING-----------------------------------------
@@ -95,12 +118,13 @@ def score_record(record, w, bad_words):
 
 # FETCHIGN FROM NCBI------------------------------------
 
-def get_accession(species, marker, sleep_time, w, bad_words):
+def get_accession(species, marker, rate_limiter, w, bad_words):
 
     try:
         query = f'"{species}"[Organism] AND {marker}'
         print("Query:", query)
 
+        rate_limiter.wait()
         handle = Entrez.esearch(db="nucleotide", term=query, retmax=10)
         rec = Entrez.read(handle)
         handle.close()
@@ -113,6 +137,7 @@ def get_accession(species, marker, sleep_time, w, bad_words):
 
         for uid in rec["IdList"]:
             try:
+                rate_limiter.wait()
                 handle = Entrez.efetch(
                     db="nucleotide",
                     id=uid,
@@ -151,8 +176,6 @@ def get_accession(species, marker, sleep_time, w, bad_words):
                 collection_date = q.get("collection_date", [None])[0]
                 voucher = q.get("specimen_voucher", [None])[0]
                 break
-
-        time.sleep(sleep_time)
 
         return (
             best.id,
@@ -281,9 +304,16 @@ extra_bad.pack(fill="x", pady=5)
 ctk.CTkLabel(scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
 
+ctk.CTkLabel(scroll, text="Min. interval between NCBI requests (s)").pack(
+    anchor="w")
 sleep_entry = ctk.CTkEntry(scroll)
-sleep_entry.insert(0, "0.35")
+sleep_entry.insert(0, "0.1")
 sleep_entry.pack(fill="x", pady=5)
+
+ctk.CTkLabel(scroll, text="Concurrent workers").pack(anchor="w")
+workers_entry = ctk.CTkEntry(scroll)
+workers_entry.insert(0, "5")
+workers_entry.pack(fill="x", pady=5)
 
 
 # SCORING SLIDERS----------------------------------------------------------------------------
@@ -391,31 +421,50 @@ def run_search():
         "bad_title_penalty": bad_penalty_s.get()
     }
 
-    sleep_time = float(sleep_entry.get())
+    rate_limiter = RateLimiter(float(sleep_entry.get()))
+
+    try:
+        max_workers = max(1, int(workers_entry.get()))
+    except ValueError:
+        max_workers = 5
 
     test = df.copy()
+    species_list = list(test["Name"])
 
-    total_jobs = len(test) * len(markers)
+    total_jobs = len(species_list) * len(markers)
     completed = 0
 
     start_time = time.time()
 
-    for marker in markers:
-        print("Processing", marker)
+    results_by_marker = {
+        marker: [None] * len(species_list) for marker in markers
+    }
 
-        rows = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
 
-        for species in test["Name"]:
+        future_to_job = {
+            executor.submit(
+                get_accession,
+                species,
+                marker,
+                rate_limiter,
+                w,
+                bad_words
+            ): (row_idx, marker)
+            for marker in markers
+            for row_idx, species in enumerate(species_list)
+        }
 
-            rows.append(
-                get_accession(
-                    species,
-                    marker,
-                    sleep_time,
-                    w,
-                    bad_words
-                )
-            )
+        for future in as_completed(future_to_job):
+            row_idx, marker = future_to_job[future]
+
+            try:
+                result = future.result()
+            except Exception as e:
+                print("job error:", e)
+                result = (None,) * 9
+
+            results_by_marker[marker][row_idx] = result
 
             completed += 1
 
@@ -447,29 +496,8 @@ def run_search():
                 )
             )
 
-            # Update progress bar
-            app.after(
-                0,
-                lambda p=completed/total_jobs: progress.set(p)
-            )
-
-            app.after(
-                0,
-                lambda c=completed:
-                progress_label.configure(
-                    text=f"{c}/{total_jobs} completed"
-                )
-            )
-
-            app.after(
-                0,
-                lambda:
-                    time_label.configure(
-                        text=f"Estimated time per sample: {mins}m {secs}s"
-                    )
-            )
-
-        results = pd.DataFrame(rows)
+    for marker in markers:
+        results = pd.DataFrame(results_by_marker[marker])
 
         results.columns = [
             f"{marker}_accession",
@@ -485,13 +513,7 @@ def run_search():
 
         test = pd.concat([test, results], axis=1)
 
-        output_df = test
-
-        progress.set(1)
-
-        time_label.configure(
-            text="Estimated time per sample: 0s"
-        )
+    output_df = test
 
     print(test)
 
