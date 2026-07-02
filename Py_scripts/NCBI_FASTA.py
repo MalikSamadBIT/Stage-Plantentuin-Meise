@@ -27,8 +27,16 @@ df_accessions = df.filter(name_and_markers, axis=1)
 df_fasta = pd.DataFrame()
 
 for i, row in df_accessions.iterrows():
+    temp = [row['Name']]
     for marker in markers:
+        temp.append(marker)
         if pd.notna(row[marker]):
             handle = Entrez.efetch(
                 db="nucleotide", id=row[marker], rettype='fasta')
             # print(handle.read())
+            temp.append(handle.read())
+        else:
+            temp.append("")
+    # print(temp)
+    temp = pd.DataFrame(temp)
+    df_fasta = pd.concat([df_fasta, temp])
