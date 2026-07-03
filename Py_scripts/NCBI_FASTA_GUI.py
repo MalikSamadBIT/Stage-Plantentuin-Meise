@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import filedialog
-from Bio import Entrez
+from Bio import Entrez, SeqIO
 import pandas as pd
 import os
 import time
@@ -47,13 +47,13 @@ class RateLimiter:
             self.last_call = time.time()
 
 
-# FETCHING FASTA FROM NCBI------------------------------------
+# FETCHING FASTA + METADATA FROM NCBI------------------------------------
 
 def get_marker_columns(dataframe):
     return [c for c in dataframe.columns if c.endswith("_accession")]
 
 
-def fetch_fasta(accession, rate_limiter):
+def fetch_record(accession, rate_limiter):
 
     try:
         rate_limiter.wait()
@@ -61,27 +61,85 @@ def fetch_fasta(accession, rate_limiter):
         handle = Entrez.efetch(
             db="nucleotide",
             id=accession,
-            rettype="fasta",
+            rettype="gb",
             retmode="text"
         )
 
-        text = handle.read()
+        gb = SeqIO.read(handle, "genbank")
         handle.close()
 
-        text = text.strip()
+        fasta_text = gb.format("fasta").strip() + "\n"
 
-        return text + "\n" if text else None
+        geo_loc = None
+        lat_lon = None
+        collection_date = None
+        voucher = None
+
+        for feature in gb.features:
+            if feature.type == "source":
+                q = feature.qualifiers
+                geo_loc = q.get("geo_loc_name", q.get("country", [None]))[0]
+                lat_lon = q.get("lat_lon", [None])[0]
+                collection_date = q.get("collection_date", [None])[0]
+                voucher = q.get("specimen_voucher", [None])[0]
+                break
+
+        meta = {
+            "accession": gb.id,
+            "title": gb.description,
+            "length": len(gb.seq),
+            "organism": gb.annotations.get("organism"),
+            "geo_loc": geo_loc,
+            "lat_lon": lat_lon,
+            "collection_date": collection_date,
+            "voucher": voucher,
+        }
+
+        return fasta_text, meta
 
     except Exception as e:
         print("efetch error:", accession, e)
         return None
 
 
-def write_results(results, base_dir, separate_species, separate_marker):
+METADATA_FIELDS = [
+    ("Species", "species"),
+    ("Marker", "marker"),
+    ("Accession", "accession"),
+    ("Organism", "organism"),
+    ("Title", "title"),
+    ("Length", "length"),
+    ("Geo location", "geo_loc"),
+    ("Lat/Lon", "lat_lon"),
+    ("Collection date", "collection_date"),
+    ("Voucher", "voucher"),
+]
+
+
+def format_metadata_block(meta):
+    header = f"{meta.get('species')} - {meta.get('marker')}"
+    lines = [header, "=" * len(header)]
+
+    for label, key in METADATA_FIELDS:
+        value = meta.get(key)
+        lines.append(
+            f"{label:<16}: {value if value not in (None, '') else '-'}")
+
+    return "\n".join(lines)
+
+
+def write_metadata_txt(path, meta_list):
+    blocks = [format_metadata_block(meta) for meta in meta_list]
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(("\n\n" + ("-" * 40) + "\n\n").join(blocks) + "\n")
+
+
+def write_results(results, base_dir, separate_species, separate_marker, save_metadata):
 
     groups = {}
 
-    for species, marker, text in results:
+    for species, marker, text, meta in results:
         key_parts = []
 
         if separate_species:
@@ -93,9 +151,12 @@ def write_results(results, base_dir, separate_species, separate_marker):
         if not key_parts:
             key_parts = ["all_sequences"]
 
-        groups.setdefault(tuple(key_parts), []).append(text)
+        key = tuple(key_parts)
+        group = groups.setdefault(key, {"fasta": [], "meta": []})
+        group["fasta"].append(text)
+        group["meta"].append(meta)
 
-    for key_parts, texts in groups.items():
+    for key_parts, group in groups.items():
 
         if key_parts == ("all_sequences",):
             folder = base_dir
@@ -104,11 +165,15 @@ def write_results(results, base_dir, separate_species, separate_marker):
 
         os.makedirs(folder, exist_ok=True)
 
-        filename = f"{key_parts[-1]}.fasta"
-        path = os.path.join(folder, filename)
+        base_name = key_parts[-1]
 
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("".join(texts))
+        fasta_path = os.path.join(folder, f"{base_name}.fasta")
+        with open(fasta_path, "w", encoding="utf-8") as f:
+            f.write("".join(group["fasta"]))
+
+        if save_metadata:
+            meta_path = os.path.join(folder, f"{base_name}_metadata.txt")
+            write_metadata_txt(meta_path, group["meta"])
 
 
 # GUI SETUP---------------------------------------
@@ -184,36 +249,28 @@ ctk.CTkLabel(scroll, text="🗂 OUTPUT OPTIONS", font=(
 
 separate_species_var = ctk.BooleanVar(value=True)
 separate_marker_var = ctk.BooleanVar(value=True)
+save_metadata_var = ctk.BooleanVar(value=True)
 
 
 def update_preview(*args):
     sep_species = separate_species_var.get()
     sep_marker = separate_marker_var.get()
+    meta = save_metadata_var.get()
 
     if sep_species and sep_marker:
-        text = (
-            "output/\n"
-            "  <species>/\n"
-            "    <marker>/\n"
-            "      <marker>.fasta"
-        )
+        base = "output/\n  <species>/\n    <marker>/\n      <marker>.fasta"
+        meta_line = "\n      <marker>_metadata.txt"
     elif sep_species:
-        text = (
-            "output/\n"
-            "  <species>/\n"
-            "    <species>.fasta"
-        )
+        base = "output/\n  <species>/\n    <species>.fasta"
+        meta_line = "\n    <species>_metadata.txt"
     elif sep_marker:
-        text = (
-            "output/\n"
-            "  <marker>/\n"
-            "    <marker>.fasta"
-        )
+        base = "output/\n  <marker>/\n    <marker>.fasta"
+        meta_line = "\n    <marker>_metadata.txt"
     else:
-        text = (
-            "output/\n"
-            "  all_sequences.fasta"
-        )
+        base = "output/\n  all_sequences.fasta"
+        meta_line = "\n  all_sequences_metadata.txt"
+
+    text = base + (meta_line if meta else "")
 
     preview_label.configure(text=text)
 
@@ -243,6 +300,14 @@ marker_checkbox = ctk.CTkCheckBox(
     command=update_preview
 )
 marker_checkbox.pack(anchor="w", pady=2)
+
+metadata_checkbox = ctk.CTkCheckBox(
+    scroll,
+    text="Save sequence metadata from NCBI (.txt), matching the FASTA grouping",
+    variable=save_metadata_var,
+    command=update_preview
+)
+metadata_checkbox.pack(anchor="w", pady=2)
 
 update_preview()
 
@@ -348,7 +413,9 @@ def run_search():
 
             if pd.notna(accession) and str(accession).strip():
                 marker = col[: -len("_accession")]
-                jobs.append((species, marker, str(accession).strip()))
+                accession = str(accession).strip()
+
+                jobs.append((species, marker, accession))
 
     total_jobs = len(jobs)
 
@@ -373,7 +440,7 @@ def run_search():
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
 
         future_to_job = {
-            executor.submit(fetch_fasta, accession, rate_limiter): (species, marker)
+            executor.submit(fetch_record, accession, rate_limiter): (species, marker)
             for species, marker, accession in jobs
         }
 
@@ -381,13 +448,15 @@ def run_search():
             species, marker = future_to_job[future]
 
             try:
-                fasta_text = future.result()
+                record = future.result()
             except Exception as e:
                 print("job error:", e)
-                fasta_text = None
+                record = None
 
-            if fasta_text:
-                results.append((species, marker, fasta_text))
+            if record:
+                fasta_text, meta = record
+                meta = {"species": species, "marker": marker, **meta}
+                results.append((species, marker, fasta_text, meta))
 
             completed += 1
 
@@ -423,7 +492,8 @@ def run_search():
         results,
         output_dir.get(),
         separate_species_var.get(),
-        separate_marker_var.get()
+        separate_marker_var.get(),
+        save_metadata_var.get()
     )
 
     app.after(
