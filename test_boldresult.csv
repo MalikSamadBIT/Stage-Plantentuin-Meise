@@ -1,11 +1,11 @@
-Name,ITS1_accession,ITS1_title,ITS1_length,ITS1_organism,ITS1_geo_loc,ITS1_lat_lon,ITS1_collection_date,ITS1_voucher,ITS1_score,ITS2_accession,ITS2_title,ITS2_length,ITS2_organism,ITS2_geo_loc,ITS2_lat_lon,ITS2_collection_date,ITS2_voucher,ITS2_score,rbcL_accession,rbcL_title,rbcL_length,rbcL_organism,rbcL_geo_loc,rbcL_lat_lon,rbcL_collection_date,rbcL_voucher,rbcL_score,matK_accession,matK_title,matK_length,matK_organism,matK_geo_loc,matK_lat_lon,matK_collection_date,matK_voucher,matK_score,extra markers (comma separated)_accession,extra markers (comma separated)_title,extra markers (comma separated)_length,extra markers (comma separated)_organism,extra markers (comma separated)_geo_loc,extra markers (comma separated)_lat_lon,extra markers (comma separated)_collection_date,extra markers (comma separated)_voucher,extra markers (comma separated)_score
-Huperzia selago,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodiella inundata,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodium clavatum,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodium annotinum,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodium alpinum,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodium issleri,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodium complanatum,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodium zeilleri,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Lycopodium tristachyum,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Isoetes lacustris,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Name,ITS_accession,ITS_title,ITS_length,ITS_organism,ITS_geo_loc,ITS_lat_lon,ITS_collection_date,ITS_voucher,ITS_score,ITS1_accession,ITS1_title,ITS1_length,ITS1_organism,ITS1_geo_loc,ITS1_lat_lon,ITS1_collection_date,ITS1_voucher,ITS1_score,ITS2_accession,ITS2_title,ITS2_length,ITS2_organism,ITS2_geo_loc,ITS2_lat_lon,ITS2_collection_date,ITS2_voucher,ITS2_score
+Huperzia selago,,,,,,,,,,NNOR1889-15,Huperzia selago,381.0,Huperzia selago,Norway,"68.365,16.689",2004-06-19,TROM_V_963980,62.0,NNOR1889-15,Huperzia selago,251.0,Huperzia selago,Norway,"68.365,16.689",2004-06-19,TROM_V_963980,47.0
+Lycopodiella inundata,NLFLM113-12,Lycopodiella inundata,990.0,Lycopodiella inundata,Netherlands,"52.207,6.696",2011-05-24,L.2074071,68.0,PNOR1548-18,Lycopodiella inundata,380.0,Lycopodiella inundata,Norway,"65.539,12.7608",1987-06-28,TROM_V_5364_sg,62.0,PNOR1548-18,Lycopodiella inundata,303.0,Lycopodiella inundata,Norway,"65.539,12.7608",1987-06-28,TROM_V_5364_sg,62.0
+Lycopodium clavatum,,,,,,,,,,PNOR823-16,Lycopodium clavatum,396.0,Lycopodium clavatum,Norway,"68.0572,15.9508",2004-07-24,TROM_V_91306,62.0,PNOR823-16,Lycopodium clavatum,283.0,Lycopodium clavatum,Norway,"68.0572,15.9508",2004-07-24,TROM_V_91306,47.0
+Lycopodium annotinum,,,,,,,,,,,,,,,,,,,MKPCH169-09,Lycopodium annotinum,,Lycopodium annotinum,Canada,"58.629,-93.798",2009-07-19,BIO 09PROBE-05074,32.0
+Lycopodium alpinum,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Lycopodium issleri,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Lycopodium complanatum,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Lycopodium zeilleri,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Lycopodium tristachyum,,,,,,,,,,,,,,,,,,,,,,,,,,,
+Isoetes lacustris,GBITS2872-21,Isoetes lacustris,723.0,Isoetes lacustris,,,,KT288382,60.0,NNOR2073-16,Isoetes lacustris,328.0,Isoetes lacustris,Norway,"68.088,15.775",2004-07-22,TROM_V_90360,62.0,BBYUK3363-22,Isoetes lacustris,356.0,Isoetes lacustris,Canada,"50.611,-57.143",2019-08-21,BABY-11170,62.0
