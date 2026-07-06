@@ -421,10 +421,16 @@ app = ctk.CTk()
 app.geometry("1250x820")
 app.title("BOLD Pipeline")
 
+# TABS------------------------------------------------------------
+tabs = ctk.CTkTabview(app)
+tabs.pack(fill="both", expand=True, padx=10, pady=10)
+
+Fetch_Fasta = tabs.add("Fetch FASTA")
+Terminal = tabs.add("Terminal")
 
 # LEFT PANEL--------------------------------------------------------
 
-left_container = ctk.CTkFrame(app)
+left_container = ctk.CTkFrame(Fetch_Fasta)
 left_container.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
 scroll = ctk.CTkScrollableFrame(left_container)
@@ -433,7 +439,7 @@ scroll.pack(fill="both", expand=True)
 
 # RIGHT PANEL (scoring + output structure preview)----------------------
 
-right = ctk.CTkFrame(app, width=320)
+right = ctk.CTkFrame(Fetch_Fasta, width=320)
 right.pack(side="right", fill="y", padx=10, pady=10)
 
 
@@ -694,12 +700,12 @@ progress.set(0)
 
 def run_search():
 
-    app.after(
+    Fetch_Fasta.after(
         0,
         lambda: run_button.configure(state="disabled")
     )
 
-    app.after(
+    Fetch_Fasta.after(
         0,
         lambda: status_label.configure(text="Searching...")
     )
@@ -714,13 +720,13 @@ def run_search():
     species_list = list(dict.fromkeys(species_list))
 
     if not species_list or not output_dir.get():
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: status_label.configure(
                 text="Select a species CSV/textbox and an output folder first!"
             )
         )
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: run_button.configure(state="normal")
         )
@@ -731,13 +737,13 @@ def run_search():
     markers = list(dict.fromkeys(markers))
 
     if not markers:
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: status_label.configure(
                 text="Select at least one marker!"
             )
         )
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: run_button.configure(state="normal")
         )
@@ -761,13 +767,13 @@ def run_search():
     total_jobs = len(species_list) * len(markers)
 
     if total_jobs == 0:
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: status_label.configure(
                 text="No species/marker combinations to search!"
             )
         )
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: run_button.configure(state="normal")
         )
@@ -809,19 +815,19 @@ def run_search():
             mins = int(remaining // 60)
             secs = int(remaining % 60)
 
-            app.after(
+            Fetch_Fasta.after(
                 0,
                 lambda p=completed / total_jobs: progress.set(p)
             )
 
-            app.after(
+            Fetch_Fasta.after(
                 0,
                 lambda c=completed: progress_label.configure(
                     text=f"{c}/{total_jobs} completed"
                 )
             )
 
-            app.after(
+            Fetch_Fasta.after(
                 0,
                 lambda m=mins, s=secs: time_label.configure(
                     text=f"Estimated time per sample: {m}m {s}s"
@@ -845,13 +851,13 @@ def run_search():
         write_no_matches_table(
             no_matches_path, species_list, markers, matched_set)
 
-    app.after(
+    Fetch_Fasta.after(
         0,
         lambda: run_button.configure(state="normal")
     )
 
     if blocked:
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: status_label.configure(
                 text="BOLD blocked the requests - stopped early. "
@@ -860,17 +866,17 @@ def run_search():
             )
         )
     else:
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: status_label.configure(
                 text=f"Finished! {len(results)}/{total_jobs} sequences saved."
             )
         )
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: progress.set(1)
         )
-        app.after(
+        Fetch_Fasta.after(
             0,
             lambda: time_label.configure(
                 text="Estimated time per sample: 0s"
