@@ -236,6 +236,41 @@ def write_metadata_txt(path, meta_list):
         f.write(("\n\n" + ("-" * 40) + "\n\n").join(blocks) + "\n")
 
 
+def write_no_matches_table(path, species_list, markers, matched_set):
+
+    rows = []
+    for species in species_list:
+        statuses = [
+            "Yes" if (species, marker) in matched_set else "No"
+            for marker in markers
+        ]
+        if "No" in statuses:
+            rows.append((species, statuses))
+
+    if not rows:
+        return
+
+    species_width = max([len("Species")] + [len(species) for species, _ in rows])
+    col_widths = [max(len(marker), 3) for marker in markers]
+
+    header = "Species".ljust(species_width) + " | " + " | ".join(
+        marker.ljust(w) for marker, w in zip(markers, col_widths)
+    )
+    separator = "-" * species_width + "-+-" + \
+        "-+-".join("-" * w for w in col_widths)
+
+    lines = [header, separator]
+
+    for species, statuses in rows:
+        line = species.ljust(species_width) + " | " + " | ".join(
+            status.ljust(w) for status, w in zip(statuses, col_widths)
+        )
+        lines.append(line)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def write_results(results, base_dir, separate_species, separate_marker, save_metadata):
 
     groups = {}
@@ -392,6 +427,7 @@ ctk.CTkLabel(scroll, textvariable=output_dir).pack(anchor="w", pady=(0, 10))
 separate_species_var = ctk.BooleanVar(value=True)
 separate_marker_var = ctk.BooleanVar(value=True)
 save_metadata_var = ctk.BooleanVar(value=True)
+save_no_matches_var = ctk.BooleanVar(value=True)
 
 
 def update_preview(*args):
@@ -413,6 +449,9 @@ def update_preview(*args):
         meta_line = "\n  all_sequences_metadata.txt"
 
     text = base + (meta_line if meta else "")
+
+    if save_no_matches_var.get():
+        text += "\n  no_matches.txt"
 
     preview_label.configure(text=text)
 
@@ -450,6 +489,14 @@ metadata_checkbox = ctk.CTkCheckBox(
     command=update_preview
 )
 metadata_checkbox.pack(anchor="w", pady=2)
+
+no_matches_checkbox = ctk.CTkCheckBox(
+    scroll,
+    text="Save species x marker match table for incomplete species (no_matches.txt)",
+    variable=save_no_matches_var,
+    command=update_preview
+)
+no_matches_checkbox.pack(anchor="w", pady=2)
 
 
 # SETTINGS-----------------------------------------------------------------------------
@@ -703,6 +750,11 @@ def run_search():
         separate_marker_var.get(),
         save_metadata_var.get()
     )
+
+    if save_no_matches_var.get():
+        matched_set = {(species, marker) for species, marker, _, _ in results}
+        no_matches_path = os.path.join(output_dir.get(), "no_matches.txt")
+        write_no_matches_table(no_matches_path, species_list, markers, matched_set)
 
     app.after(
         0,
