@@ -50,38 +50,6 @@ class BoldBlockedError(Exception):
     pass
 
 
-def bold_request(url, params, max_retries=4, timeout=30):
-
-    delay = 5
-
-    for attempt in range(max_retries):
-        try:
-            r = requests.get(url, params=params, timeout=timeout)
-        except requests.RequestException as e:
-            print("BOLD network error:", e)
-            time.sleep(delay)
-            delay *= 2
-            continue
-
-        if r.status_code == 200:
-            return r
-
-        if r.status_code in (403, 429) or r.status_code >= 500:
-            print(
-                f"BOLD returned {r.status_code}, "
-                f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
-            )
-            time.sleep(delay)
-            delay *= 2
-            continue
-
-        r.raise_for_status()
-
-    raise BoldBlockedError(
-        f"BOLD kept refusing requests after {max_retries} attempts "
-        "(likely rate-limited/blocked). Stopping run."
-    )
-
 # COUNTRY GROUPING-----------------------------------------
 
 
@@ -200,12 +168,13 @@ def bold_request(url, params, rate_limiter, max_retries=4, timeout=30):
     )
 
 
-def fetch_bold_records(species):
+def fetch_bold_records(species, rate_limiter):
 
     try:
         pre = bold_request(
             f"{BOLD_BASE}/query/preprocessor",
-            {"query": f"tax:{species}"}
+            {"query": f"tax:{species}"},
+            rate_limiter
         )
 
         terms = pre.json().get("successful_terms", [])
@@ -219,7 +188,8 @@ def fetch_bold_records(species):
 
         q = bold_request(
             f"{BOLD_BASE}/query",
-            {"query": ";".join(matched), "extent": "full"}
+            {"query": ";".join(matched), "extent": "full"},
+            rate_limiter
         )
 
         query_id = q.json().get("query_id")
@@ -229,7 +199,8 @@ def fetch_bold_records(species):
 
         dl = bold_request(
             f"{BOLD_BASE}/documents/{query_id}/download",
-            {"format": "json"}
+            {"format": "json"},
+            rate_limiter
         )
 
         records = []
@@ -250,11 +221,11 @@ def fetch_bold_records(species):
 # FETCHING------------------------------------------------------------------------------------
 
 
-def get_accession(species, marker, sleep_time, w, bad_words, cache):
+def get_accession(species, marker, sleep_time, w, bad_words, cache, rate_limiter):
 
     try:
         if species not in cache:
-            cache[species] = fetch_bold_records(species)
+            cache[species] = fetch_bold_records(species, rate_limiter)
             time.sleep(sleep_time)
 
         records = [
