@@ -326,9 +326,10 @@ ctk.CTkButton(scroll, text="Select CSV File (with 'Name' column)",
               command=load).pack(fill="x", pady=5)
 ctk.CTkLabel(scroll, textvariable=file_path).pack(anchor="w", pady=(0, 10))
 
-ctk.CTkButton(scroll, text="Select Output Folder",
-              command=choose_output).pack(fill="x", pady=5)
-ctk.CTkLabel(scroll, textvariable=output_dir).pack(anchor="w", pady=(0, 10))
+ctk.CTkLabel(scroll, text="Or enter species names (comma separated)").pack(
+    anchor="w")
+species_textbox = ctk.CTkTextbox(scroll, height=80)
+species_textbox.pack(fill="x", pady=(0, 10))
 
 
 # MARKERS + BAD WORDS-----------------------------------------------------------------
@@ -383,6 +384,10 @@ extra_bad.pack(fill="x", pady=5)
 
 ctk.CTkLabel(scroll, text="🗂 OUTPUT OPTIONS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
+
+ctk.CTkButton(scroll, text="Select Output Folder",
+              command=choose_output).pack(fill="x", pady=5)
+ctk.CTkLabel(scroll, textvariable=output_dir).pack(anchor="w", pady=(0, 10))
 
 separate_species_var = ctk.BooleanVar(value=True)
 separate_marker_var = ctk.BooleanVar(value=True)
@@ -555,11 +560,18 @@ def run_search():
 
     global df
 
-    if df is None or not output_dir.get():
+    species_list = list(df["Name"]) if df is not None else []
+    species_list += [
+        s.strip() for s in species_textbox.get("1.0", "end").split(",")
+        if s.strip()
+    ]
+    species_list = list(dict.fromkeys(species_list))
+
+    if not species_list or not output_dir.get():
         app.after(
             0,
             lambda: status_label.configure(
-                text="Select an input file and output folder first!"
+                text="Select a species CSV/textbox and an output folder first!"
             )
         )
         app.after(
@@ -604,8 +616,6 @@ def run_search():
         max_workers = max(1, int(workers_entry.get()))
     except ValueError:
         max_workers = 5
-
-    species_list = list(df["Name"])
 
     jobs = [
         (species, marker)
