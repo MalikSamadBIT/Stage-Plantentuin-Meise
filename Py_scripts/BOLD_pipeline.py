@@ -65,7 +65,7 @@ def bold_request(url, params, rate_limiter, max_retries=4, timeout=30):
         try:
             r = requests.get(url, params=params, timeout=timeout)
         except requests.RequestException as e:
-            print("BOLD network error:", e)
+            log("BOLD network error:", e)
             time.sleep(delay)
             delay *= 2
             continue
@@ -74,7 +74,7 @@ def bold_request(url, params, rate_limiter, max_retries=4, timeout=30):
             return r
 
         if r.status_code in (403, 429) or r.status_code >= 500:
-            print(
+            log(
                 f"BOLD returned {r.status_code}, "
                 f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
             )
@@ -225,7 +225,7 @@ def fetch_bold_records(species, rate_limiter):
         raise
 
     except Exception as e:
-        print("BOLD query error:", e)
+        log("BOLD query error:", e)
         return []
 
 
@@ -298,7 +298,7 @@ def search_and_fetch(species, marker, rate_limiter, w, bad_words, cache):
         raise
 
     except Exception as e:
-        print(e)
+        log(e)
         return None
 
 
@@ -705,10 +705,7 @@ def run_search():
         lambda: run_button.configure(state="disabled")
     )
 
-    Fetch_Fasta.after(
-        0,
-        lambda: status_label.configure(text="Searching...")
-    )
+    update_status("Searching...")
 
     global df
 
@@ -720,12 +717,7 @@ def run_search():
     species_list = list(dict.fromkeys(species_list))
 
     if not species_list or not output_dir.get():
-        Fetch_Fasta.after(
-            0,
-            lambda: status_label.configure(
-                text="Select a species CSV/textbox and an output folder first!"
-            )
-        )
+        update_status("Select a species CSV/textbox and an output folder first!")
         Fetch_Fasta.after(
             0,
             lambda: run_button.configure(state="normal")
@@ -737,12 +729,7 @@ def run_search():
     markers = list(dict.fromkeys(markers))
 
     if not markers:
-        Fetch_Fasta.after(
-            0,
-            lambda: status_label.configure(
-                text="Select at least one marker!"
-            )
-        )
+        update_status("Select at least one marker!")
         Fetch_Fasta.after(
             0,
             lambda: run_button.configure(state="normal")
@@ -767,12 +754,7 @@ def run_search():
     total_jobs = len(species_list) * len(markers)
 
     if total_jobs == 0:
-        Fetch_Fasta.after(
-            0,
-            lambda: status_label.configure(
-                text="No species/marker combinations to search!"
-            )
-        )
+        update_status("No species/marker combinations to search!")
         Fetch_Fasta.after(
             0,
             lambda: run_button.configure(state="normal")
@@ -795,7 +777,7 @@ def run_search():
                     species, marker, rate_limiter, w, bad_words, cache
                 )
             except BoldBlockedError as e:
-                print(e)
+                log(e)
                 blocked = True
                 break
 
@@ -857,21 +839,13 @@ def run_search():
     )
 
     if blocked:
-        Fetch_Fasta.after(
-            0,
-            lambda: status_label.configure(
-                text="BOLD blocked the requests - stopped early. "
-                     "Partial results saved. Try again later with a "
-                     "longer request interval."
-            )
+        update_status(
+            "BOLD blocked the requests - stopped early. "
+            "Partial results saved. Try again later with a "
+            "longer request interval."
         )
     else:
-        Fetch_Fasta.after(
-            0,
-            lambda: status_label.configure(
-                text=f"Finished! {len(results)}/{total_jobs} sequences saved."
-            )
-        )
+        update_status(f"Finished! {len(results)}/{total_jobs} sequences saved.")
         Fetch_Fasta.after(
             0,
             lambda: progress.set(1)
@@ -901,6 +875,38 @@ run_button = ctk.CTkButton(
 )
 
 run_button.pack(fill="x", pady=10)
+
+# TERMINAL TAB-------------------------------------------------
+
+top_container = ctk.CTkFrame(Terminal)
+top_container.pack(side="top", fill="both", expand=True, padx=10, pady=10)
+
+terminal_status_label = ctk.CTkLabel(top_container, text="Idle", anchor="w")
+terminal_status_label.pack(fill="x", pady=(0, 10))
+
+log_box = ctk.CTkTextbox(top_container, state="disabled", font=("Consolas", 12))
+log_box.pack(fill="both", expand=True)
+
+
+def write_log(message):
+    def append():
+        log_box.configure(state="normal")
+        log_box.insert("end", message + "\n")
+        log_box.see("end")
+        log_box.configure(state="disabled")
+
+    Terminal.after(0, append)
+
+
+def log(*args):
+    message = " ".join(str(a) for a in args)
+    print(message)
+    write_log(message)
+
+
+def update_status(text):
+    Fetch_Fasta.after(0, lambda: status_label.configure(text=text))
+    Terminal.after(0, lambda: terminal_status_label.configure(text=text))
 
 
 app.mainloop()
