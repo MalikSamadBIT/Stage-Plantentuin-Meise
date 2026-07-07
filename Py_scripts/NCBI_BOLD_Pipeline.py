@@ -274,6 +274,7 @@ def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words):
                 break
 
         meta = {
+            "source": "NCBI",
             "accession": best.id,
             "title": best.description,
             "length": len(best.seq),
@@ -400,6 +401,7 @@ def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache):
         voucher = best.get("museumid") or best.get("sampleid")
 
         meta = {
+            "source": "BOLD",
             "accession": best.get("processid"),
             "title": best.get("identification"),
             "length": best.get("nuc_basecount"),
@@ -424,6 +426,7 @@ def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache):
 METADATA_FIELDS = [
     ("Species", "species"),
     ("Marker", "marker"),
+    ("Source", "source"),
     ("Accession", "accession"),
     ("Organism", "organism"),
     ("Title", "title"),
@@ -575,11 +578,13 @@ def on_source_change(value):
     if value == "NCBI":
         workers_label.pack(anchor="w", after=sleep_entry)
         workers_entry.pack(fill="x", pady=5, after=workers_label)
+        retry_bold_checkbox.pack(anchor="w", pady=(0, 10))
         sleep_entry.delete(0, "end")
         sleep_entry.insert(0, "0.1")
     else:
         workers_label.pack_forget()
         workers_entry.pack_forget()
+        retry_bold_checkbox.pack_forget()
         sleep_entry.delete(0, "end")
         sleep_entry.insert(0, "1.0")
 
@@ -591,6 +596,15 @@ source_selector = ctk.CTkSegmentedButton(
     command=on_source_change
 )
 source_selector.pack(fill="x", pady=(0, 10))
+
+retry_bold_var = ctk.BooleanVar(value=False)
+
+retry_bold_checkbox = ctk.CTkCheckBox(
+    scroll,
+    text="Retry NCBI no-matches with BOLD",
+    variable=retry_bold_var
+)
+retry_bold_checkbox.pack(anchor="w", pady=(0, 10))
 
 
 # FILE SECTION----------------------------------------------------------
@@ -904,32 +918,34 @@ def run_search():
 
     source = source_var.get()
 
-    total_jobs = len(species_list) * len(markers)
+    all_jobs = [
+        (species, marker)
+        for marker in markers
+        for species in species_list
+    ]
+
+    total_jobs = len(all_jobs)
 
     if total_jobs == 0:
         update_status("No species/marker combinations to search!")
         Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
         return
 
-    completed = 0
-    start_time = time.time()
-
     results = []
     blocked = False
 
-    def report_progress():
-        nonlocal completed
+    def report_progress(completed, total, start_time, label=""):
         elapsed = time.time() - start_time
         avg_time = elapsed / completed
-        remaining = avg_time * (total_jobs - completed)
+        remaining = avg_time * (total - completed)
         mins = int(remaining // 60)
         secs = int(remaining % 60)
 
-        Fetch_Fasta.after(0, lambda p=completed / total_jobs: progress.set(p))
+        Fetch_Fasta.after(0, lambda p=completed / total: progress.set(p))
         Fetch_Fasta.after(
             0,
             lambda c=completed: progress_label.configure(
-                text=f"{c}/{total_jobs} completed"
+                text=f"{label}{c}/{total} completed"
             )
         )
         Fetch_Fasta.after(
@@ -939,6 +955,8 @@ def run_search():
             )
         )
 
+    start_time = time.time()
+
     if source == "NCBI":
 
         try:
@@ -946,11 +964,7 @@ def run_search():
         except ValueError:
             max_workers = 5
 
-        jobs = [
-            (species, marker)
-            for marker in markers
-            for species in species_list
-        ]
+        completed = 0
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
 
@@ -958,7 +972,7 @@ def run_search():
                 executor.submit(
                     search_and_fetch_ncbi, species, marker, rate_limiter, w, bad_words
                 ): (species, marker)
-                for species, marker in jobs
+                for species, marker in all_jobs
             }
 
             for future in as_completed(future_to_job):
@@ -976,11 +990,54 @@ def run_search():
                     results.append((species, marker, fasta_text, meta))
 
                 completed += 1
-                report_progress()
+                report_progress(completed, total_jobs, start_time)
+
+        if retry_bold_var.get():
+            matched_so_far = {(species, marker) for species, marker, _, _ in results}
+            retry_jobs = [job for job in all_jobs if job not in matched_so_far]
+
+            if retry_jobs:
+                update_status(f"Retrying {len(retry_jobs)} NCBI no-matches with BOLD...")
+
+                # BOLD needs a much gentler pace than NCBI - the "Min. interval"
+                # field is tuned for whichever source is currently selected, so
+                # reusing it here (likely ~0.1s, set for NCBI) would hammer BOLD
+                # and risk an immediate Cloudflare block. Enforce a safe floor
+                # instead of trusting the NCBI-tuned value.
+                retry_rate_limiter = RateLimiter(max(float(sleep_entry.get()), 1.0))
+
+                cache = {}
+                retry_total = len(retry_jobs)
+                retry_completed = 0
+                retry_start = time.time()
+
+                for species, marker in retry_jobs:
+
+                    log(f"Retrying {species} ({marker}) on BOLD...")
+
+                    try:
+                        record = search_and_fetch_bold(
+                            species, marker, retry_rate_limiter, w, bad_words, cache
+                        )
+                    except BoldBlockedError as e:
+                        log(e)
+                        blocked = True
+                        break
+
+                    if record:
+                        fasta_text, meta = record
+                        meta = {"species": species, "marker": marker, **meta}
+                        results.append((species, marker, fasta_text, meta))
+
+                    retry_completed += 1
+                    report_progress(
+                        retry_completed, retry_total, retry_start, label="BOLD retry: "
+                    )
 
     else:  # BOLD - serial, per-species cache, circuit breaker on blocks
 
         cache = {}
+        completed = 0
 
         for species in species_list:
 
@@ -1003,7 +1060,7 @@ def run_search():
                     results.append((species, marker, fasta_text, meta))
 
                 completed += 1
-                report_progress()
+                report_progress(completed, total_jobs, start_time)
 
             if blocked:
                 break
