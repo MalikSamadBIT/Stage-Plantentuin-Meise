@@ -294,10 +294,7 @@ def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words):
 
 
 # FETCHING FROM BOLD------------------------------------------------------
-# BOLD's v5 API is a 3-step token flow, and a species query returns every
-# marker for that species in one go - so we fetch/cache once per species
-# and reuse it across all requested markers instead of re-querying BOLD
-# for each marker separately.
+
 
 def fetch_bold_records(species, rate_limiter):
 
@@ -355,9 +352,7 @@ def wrap_sequence(seq, width=70):
 
 
 # SEARCH + SCORE + FETCH FROM BOLD------------------------------------
-# One cached fetch per species, scored per marker - the winning record
-# already has the sequence ("nuc"), so FASTA is built straight from it,
-# no second fetch needed for the accession that wins.
+
 
 def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache):
 
@@ -388,7 +383,8 @@ def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache):
 
         nuc = best.get("nuc")
 
-        header = f">{best.get('processid')} {best.get('identification') or ''}".strip()
+        header = f">{best.get('processid')} {best.get('identification') or ''}".strip(
+        )
         fasta_text = header + "\n" + wrap_sequence(nuc) + "\n"
 
         coord = best.get("coord")
@@ -472,7 +468,8 @@ def write_no_matches_table(path, species_list, markers, matched_set):
     if not rows:
         return
 
-    species_width = max([len("Species")] + [len(species) for species, _ in rows])
+    species_width = max([len("Species")] + [len(species)
+                        for species, _ in rows])
     col_widths = [max(len(marker), 3) for marker in markers]
 
     header = "Species".ljust(species_width) + " | " + " | ".join(
@@ -782,10 +779,7 @@ no_matches_checkbox.pack(anchor="w", pady=2)
 
 
 # SETTINGS-----------------------------------------------------------------------------
-# "Concurrent workers" only applies to NCBI. BOLD sits behind Cloudflare
-# and blocks aggressively on concurrent/sustained traffic, so the BOLD
-# path always fetches one species at a time (see BOLD_ID.py/BOLD_pipeline.py)
-# and this control is hidden whenever BOLD is selected.
+
 
 ctk.CTkLabel(scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
@@ -899,7 +893,8 @@ def run_search():
     species_list = list(dict.fromkeys(species_list))
 
     if not species_list or not output_dir.get():
-        update_status("Select a species CSV/textbox and an output folder first!")
+        update_status(
+            "Select a species CSV/textbox and an output folder first!")
         Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
         return
 
@@ -1004,18 +999,21 @@ def run_search():
                 report_progress(completed, total_jobs, start_time)
 
         if retry_bold_var.get():
-            matched_so_far = {(species, marker) for species, marker, _, _ in results}
+            matched_so_far = {(species, marker)
+                              for species, marker, _, _ in results}
             retry_jobs = [job for job in all_jobs if job not in matched_so_far]
 
             if retry_jobs:
-                update_status(f"Retrying {len(retry_jobs)} NCBI no-matches with BOLD...")
+                update_status(
+                    f"Retrying {len(retry_jobs)} NCBI no-matches with BOLD...")
 
                 # BOLD needs a much gentler pace than NCBI - the "Min. interval"
                 # field is tuned for whichever source is currently selected, so
                 # reusing it here (likely ~0.1s, set for NCBI) would hammer BOLD
                 # and risk an immediate Cloudflare block. Enforce a safe floor
                 # instead of trusting the NCBI-tuned value.
-                retry_rate_limiter = RateLimiter(max(float(sleep_entry.get()), 1.0))
+                retry_rate_limiter = RateLimiter(
+                    max(float(sleep_entry.get()), 1.0))
 
                 cache = {}
                 retry_total = len(retry_jobs)
@@ -1077,17 +1075,20 @@ def run_search():
                 break
 
         if retry_ncbi_var.get():
-            matched_so_far = {(species, marker) for species, marker, _, _ in results}
+            matched_so_far = {(species, marker)
+                              for species, marker, _, _ in results}
             retry_jobs = [job for job in all_jobs if job not in matched_so_far]
 
             if retry_jobs:
-                update_status(f"Retrying {len(retry_jobs)} BOLD no-matches with NCBI...")
+                update_status(
+                    f"Retrying {len(retry_jobs)} BOLD no-matches with NCBI...")
 
                 # NCBI's rate cap (10 req/sec with an API key) is well known and
                 # safe regardless of whatever interval BOLD's field currently
                 # holds, so the retry gets its own NCBI-appropriate limiter
                 # instead of inheriting BOLD's much slower default.
-                retry_rate_limiter = RateLimiter(min(float(sleep_entry.get()), 0.1))
+                retry_rate_limiter = RateLimiter(
+                    min(float(sleep_entry.get()), 0.1))
 
                 try:
                     retry_max_workers = max(1, int(workers_entry.get()))
@@ -1118,7 +1119,8 @@ def run_search():
 
                         if record:
                             fasta_text, meta = record
-                            meta = {"species": species, "marker": marker, **meta}
+                            meta = {"species": species,
+                                    "marker": marker, **meta}
                             results.append((species, marker, fasta_text, meta))
 
                         retry_completed += 1
@@ -1137,7 +1139,8 @@ def run_search():
     if save_no_matches_var.get():
         matched_set = {(species, marker) for species, marker, _, _ in results}
         no_matches_path = os.path.join(output_dir.get(), "no_matches.txt")
-        write_no_matches_table(no_matches_path, species_list, markers, matched_set)
+        write_no_matches_table(
+            no_matches_path, species_list, markers, matched_set)
 
     Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
 
@@ -1148,7 +1151,8 @@ def run_search():
             "longer request interval."
         )
     else:
-        update_status(f"Finished! {len(results)}/{total_jobs} sequences saved.")
+        update_status(
+            f"Finished! {len(results)}/{total_jobs} sequences saved.")
         Fetch_Fasta.after(0, lambda: progress.set(1))
         Fetch_Fasta.after(
             0,
@@ -1183,7 +1187,8 @@ top_container.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 terminal_status_label = ctk.CTkLabel(top_container, text="Idle", anchor="w")
 terminal_status_label.pack(fill="x", pady=(0, 10))
 
-log_box = ctk.CTkTextbox(top_container, state="disabled", font=("Consolas", 12))
+log_box = ctk.CTkTextbox(
+    top_container, state="disabled", font=("Consolas", 12))
 log_box.pack(fill="both", expand=True)
 
 
