@@ -772,6 +772,8 @@ def run_search():
 
         for marker in markers:
 
+            log(f"Searching {species} ({marker})...")
+
             try:
                 record = search_and_fetch(
                     species, marker, rate_limiter, w, bad_words, cache
