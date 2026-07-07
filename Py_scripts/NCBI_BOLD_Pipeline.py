@@ -579,12 +579,14 @@ def on_source_change(value):
         workers_label.pack(anchor="w", after=sleep_entry)
         workers_entry.pack(fill="x", pady=5, after=workers_label)
         retry_bold_checkbox.pack(anchor="w", pady=(0, 10))
+        retry_ncbi_checkbox.pack_forget()
         sleep_entry.delete(0, "end")
         sleep_entry.insert(0, "0.1")
     else:
         workers_label.pack_forget()
         workers_entry.pack_forget()
         retry_bold_checkbox.pack_forget()
+        retry_ncbi_checkbox.pack(anchor="w", pady=(0, 10))
         sleep_entry.delete(0, "end")
         sleep_entry.insert(0, "1.0")
 
@@ -605,6 +607,15 @@ retry_bold_checkbox = ctk.CTkCheckBox(
     variable=retry_bold_var
 )
 retry_bold_checkbox.pack(anchor="w", pady=(0, 10))
+
+retry_ncbi_var = ctk.BooleanVar(value=False)
+
+retry_ncbi_checkbox = ctk.CTkCheckBox(
+    scroll,
+    text="Retry BOLD no-matches with NCBI",
+    variable=retry_ncbi_var
+)
+# not packed here - only shown when BOLD is the selected source
 
 
 # FILE SECTION----------------------------------------------------------
@@ -1064,6 +1075,56 @@ def run_search():
 
             if blocked:
                 break
+
+        if retry_ncbi_var.get():
+            matched_so_far = {(species, marker) for species, marker, _, _ in results}
+            retry_jobs = [job for job in all_jobs if job not in matched_so_far]
+
+            if retry_jobs:
+                update_status(f"Retrying {len(retry_jobs)} BOLD no-matches with NCBI...")
+
+                # NCBI's rate cap (10 req/sec with an API key) is well known and
+                # safe regardless of whatever interval BOLD's field currently
+                # holds, so the retry gets its own NCBI-appropriate limiter
+                # instead of inheriting BOLD's much slower default.
+                retry_rate_limiter = RateLimiter(min(float(sleep_entry.get()), 0.1))
+
+                try:
+                    retry_max_workers = max(1, int(workers_entry.get()))
+                except ValueError:
+                    retry_max_workers = 5
+
+                retry_total = len(retry_jobs)
+                retry_completed = 0
+                retry_start = time.time()
+
+                with ThreadPoolExecutor(max_workers=retry_max_workers) as executor:
+
+                    future_to_job = {
+                        executor.submit(
+                            search_and_fetch_ncbi, species, marker, retry_rate_limiter, w, bad_words
+                        ): (species, marker)
+                        for species, marker in retry_jobs
+                    }
+
+                    for future in as_completed(future_to_job):
+                        species, marker = future_to_job[future]
+
+                        try:
+                            record = future.result()
+                        except Exception as e:
+                            log("job error:", e)
+                            record = None
+
+                        if record:
+                            fasta_text, meta = record
+                            meta = {"species": species, "marker": marker, **meta}
+                            results.append((species, marker, fasta_text, meta))
+
+                        retry_completed += 1
+                        report_progress(
+                            retry_completed, retry_total, retry_start, label="NCBI retry: "
+                        )
 
     write_results(
         results,
