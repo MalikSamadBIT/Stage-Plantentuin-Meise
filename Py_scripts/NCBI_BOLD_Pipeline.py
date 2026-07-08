@@ -214,7 +214,40 @@ def score_bold_record(record, w, bad_words):
 
 # SEARCH + SCORE + FETCH FROM NCBI------------------------------------
 
-def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words, max_candidates=10):
+def build_ncbi_result(gb, score):
+    fasta_text = gb.format("fasta").strip() + "\n"
+
+    geo_loc = None
+    lat_lon = None
+    collection_date = None
+    voucher = None
+
+    for feature in gb.features:
+        if feature.type == "source":
+            q = feature.qualifiers
+            geo_loc = q.get("geo_loc_name", q.get("country", [None]))[0]
+            lat_lon = q.get("lat_lon", [None])[0]
+            collection_date = q.get("collection_date", [None])[0]
+            voucher = q.get("specimen_voucher", [None])[0]
+            break
+
+    meta = {
+        "source": "NCBI",
+        "accession": gb.id,
+        "title": gb.description,
+        "length": len(gb.seq),
+        "organism": gb.annotations.get("organism"),
+        "geo_loc": geo_loc,
+        "lat_lon": lat_lon,
+        "collection_date": collection_date,
+        "voucher": voucher,
+        "score": score,
+    }
+
+    return fasta_text, meta
+
+
+def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words, max_candidates=10, top_n=1):
 
     try:
         query = f'"{species}"[Organism] AND {marker}'
@@ -227,10 +260,9 @@ def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words, max_candi
         handle.close()
 
         if not rec["IdList"]:
-            return None
+            return []
 
-        best = None
-        best_score = -999
+        scored = []
 
         for uid in rec["IdList"]:
             try:
@@ -246,52 +278,22 @@ def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words, max_candi
                 handle.close()
 
                 sc = score_record(gb, w, bad_words)
-
-                if sc > best_score:
-                    best_score = sc
-                    best = gb
+                scored.append((sc, gb))
 
             except Exception as e:
                 log("efetch error:", e)
                 continue
 
-        if best is None:
-            return None
+        if not scored:
+            return []
 
-        fasta_text = best.format("fasta").strip() + "\n"
+        scored.sort(key=lambda pair: pair[0], reverse=True)
 
-        geo_loc = None
-        lat_lon = None
-        collection_date = None
-        voucher = None
-
-        for feature in best.features:
-            if feature.type == "source":
-                q = feature.qualifiers
-                geo_loc = q.get("geo_loc_name", q.get("country", [None]))[0]
-                lat_lon = q.get("lat_lon", [None])[0]
-                collection_date = q.get("collection_date", [None])[0]
-                voucher = q.get("specimen_voucher", [None])[0]
-                break
-
-        meta = {
-            "source": "NCBI",
-            "accession": best.id,
-            "title": best.description,
-            "length": len(best.seq),
-            "organism": best.annotations.get("organism"),
-            "geo_loc": geo_loc,
-            "lat_lon": lat_lon,
-            "collection_date": collection_date,
-            "voucher": voucher,
-            "score": best_score,
-        }
-
-        return fasta_text, meta
+        return [build_ncbi_result(gb, sc) for sc, gb in scored[:top_n]]
 
     except Exception as e:
         log(e)
-        return None
+        return []
 
 
 # FETCHING FROM BOLD------------------------------------------------------
@@ -355,7 +357,39 @@ def wrap_sequence(seq, width=70):
 # SEARCH + SCORE + FETCH FROM BOLD------------------------------------
 
 
-def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache, max_candidates=10):
+def build_bold_result(record, score):
+    nuc = record.get("nuc")
+
+    header = f">{record.get('processid')} {record.get('identification') or ''}".strip(
+    )
+    fasta_text = header + "\n" + wrap_sequence(nuc) + "\n"
+
+    coord = record.get("coord")
+    lat_lon = (
+        f"{coord[0]},{coord[1]}"
+        if isinstance(coord, list) and len(coord) == 2
+        else None
+    )
+
+    voucher = record.get("museumid") or record.get("sampleid")
+
+    meta = {
+        "source": "BOLD",
+        "accession": record.get("processid"),
+        "title": record.get("identification"),
+        "length": record.get("nuc_basecount"),
+        "organism": record.get("species"),
+        "geo_loc": record.get("country/ocean"),
+        "lat_lon": lat_lon,
+        "collection_date": record.get("collection_date_start"),
+        "voucher": voucher,
+        "score": score,
+    }
+
+    return fasta_text, meta
+
+
+def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache, max_candidates=10, top_n=1):
 
     try:
         if species not in cache:
@@ -367,57 +401,19 @@ def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache, ma
         ][:max_candidates]
 
         if not records:
-            return None
+            return []
 
-        best = None
-        best_score = -999
+        scored = [(score_bold_record(r, w, bad_words), r) for r in records]
+        scored.sort(key=lambda pair: pair[0], reverse=True)
 
-        for r in records:
-            sc = score_bold_record(r, w, bad_words)
-
-            if sc > best_score:
-                best_score = sc
-                best = r
-
-        if best is None:
-            return None
-
-        nuc = best.get("nuc")
-
-        header = f">{best.get('processid')} {best.get('identification') or ''}".strip(
-        )
-        fasta_text = header + "\n" + wrap_sequence(nuc) + "\n"
-
-        coord = best.get("coord")
-        lat_lon = (
-            f"{coord[0]},{coord[1]}"
-            if isinstance(coord, list) and len(coord) == 2
-            else None
-        )
-
-        voucher = best.get("museumid") or best.get("sampleid")
-
-        meta = {
-            "source": "BOLD",
-            "accession": best.get("processid"),
-            "title": best.get("identification"),
-            "length": best.get("nuc_basecount"),
-            "organism": best.get("species"),
-            "geo_loc": best.get("country/ocean"),
-            "lat_lon": lat_lon,
-            "collection_date": best.get("collection_date_start"),
-            "voucher": voucher,
-            "score": best_score,
-        }
-
-        return fasta_text, meta
+        return [build_bold_result(r, sc) for sc, r in scored[:top_n]]
 
     except BoldBlockedError:
         raise
 
     except Exception as e:
         log(e)
-        return None
+        return []
 
 
 METADATA_FIELDS = [
@@ -812,6 +808,12 @@ candidates_entry = ctk.CTkEntry(scroll)
 candidates_entry.insert(0, "10")
 candidates_entry.pack(fill="x", pady=5)
 
+ctk.CTkLabel(scroll, text="Results to save per marker (top N)").pack(
+    anchor="w")
+top_n_entry = ctk.CTkEntry(scroll)
+top_n_entry.insert(0, "1")
+top_n_entry.pack(fill="x", pady=5)
+
 
 # SCORING SLIDERS (right panel)----------------------------------------------------------------------------
 
@@ -943,6 +945,11 @@ def run_search():
     except ValueError:
         max_candidates = 10
 
+    try:
+        top_n = max(1, int(top_n_entry.get()))
+    except ValueError:
+        top_n = 1
+
     source = source_var.get()
 
     all_jobs = [
@@ -997,7 +1004,7 @@ def run_search():
 
             future_to_job = {
                 executor.submit(
-                    search_and_fetch_ncbi, species, marker, rate_limiter, w, bad_words, max_candidates
+                    search_and_fetch_ncbi, species, marker, rate_limiter, w, bad_words, max_candidates, top_n
                 ): (species, marker)
                 for species, marker in all_jobs
             }
@@ -1006,13 +1013,12 @@ def run_search():
                 species, marker = future_to_job[future]
 
                 try:
-                    record = future.result()
+                    records = future.result()
                 except Exception as e:
                     log("job error:", e)
-                    record = None
+                    records = []
 
-                if record:
-                    fasta_text, meta = record
+                for fasta_text, meta in records:
                     meta = {"species": species, "marker": marker, **meta}
                     results.append((species, marker, fasta_text, meta))
 
@@ -1046,16 +1052,15 @@ def run_search():
                     log(f"Retrying {species} ({marker}) on BOLD...")
 
                     try:
-                        record = search_and_fetch_bold(
-                            species, marker, retry_rate_limiter, w, bad_words, cache, max_candidates
+                        records = search_and_fetch_bold(
+                            species, marker, retry_rate_limiter, w, bad_words, cache, max_candidates, top_n
                         )
                     except BoldBlockedError as e:
                         log(e)
                         blocked = True
                         break
 
-                    if record:
-                        fasta_text, meta = record
+                    for fasta_text, meta in records:
                         meta = {"species": species, "marker": marker, **meta}
                         results.append((species, marker, fasta_text, meta))
 
@@ -1076,16 +1081,15 @@ def run_search():
                 log(f"Searching {species} ({marker}) on BOLD...")
 
                 try:
-                    record = search_and_fetch_bold(
-                        species, marker, rate_limiter, w, bad_words, cache, max_candidates
+                    records = search_and_fetch_bold(
+                        species, marker, rate_limiter, w, bad_words, cache, max_candidates, top_n
                     )
                 except BoldBlockedError as e:
                     log(e)
                     blocked = True
                     break
 
-                if record:
-                    fasta_text, meta = record
+                for fasta_text, meta in records:
                     meta = {"species": species, "marker": marker, **meta}
                     results.append((species, marker, fasta_text, meta))
 
@@ -1124,7 +1128,7 @@ def run_search():
 
                     future_to_job = {
                         executor.submit(
-                            search_and_fetch_ncbi, species, marker, retry_rate_limiter, w, bad_words, max_candidates
+                            search_and_fetch_ncbi, species, marker, retry_rate_limiter, w, bad_words, max_candidates, top_n
                         ): (species, marker)
                         for species, marker in retry_jobs
                     }
@@ -1133,13 +1137,12 @@ def run_search():
                         species, marker = future_to_job[future]
 
                         try:
-                            record = future.result()
+                            records = future.result()
                         except Exception as e:
                             log("job error:", e)
-                            record = None
+                            records = []
 
-                        if record:
-                            fasta_text, meta = record
+                        for fasta_text, meta in records:
                             meta = {"species": species,
                                     "marker": marker, **meta}
                             results.append((species, marker, fasta_text, meta))
@@ -1169,7 +1172,7 @@ def run_search():
 
             future_to_job = {
                 executor.submit(
-                    search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w, bad_words, max_candidates
+                    search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w, bad_words, max_candidates, top_n
                 ): (species, marker)
                 for species, marker in all_jobs
             }
@@ -1178,13 +1181,13 @@ def run_search():
                 job = future_to_job[future]
 
                 try:
-                    record = future.result()
+                    records = future.result()
                 except Exception as e:
                     log("job error:", e)
-                    record = None
+                    records = []
 
-                if record:
-                    ncbi_results[job] = record
+                if records:
+                    ncbi_results[job] = records
 
                 completed += 1
                 report_progress(completed, total_jobs,
@@ -1202,16 +1205,16 @@ def run_search():
                 log(f"Searching {species} ({marker}) on BOLD...")
 
                 try:
-                    record = search_and_fetch_bold(
-                        species, marker, bold_rate_limiter, w, bad_words, cache, max_candidates
+                    records = search_and_fetch_bold(
+                        species, marker, bold_rate_limiter, w, bad_words, cache, max_candidates, top_n
                     )
                 except BoldBlockedError as e:
                     log(e)
                     blocked = True
                     break
 
-                if record:
-                    bold_results[(species, marker)] = record
+                if records:
+                    bold_results[(species, marker)] = records
 
                 completed += 1
                 report_progress(completed, total_jobs,
@@ -1220,21 +1223,18 @@ def run_search():
             if blocked:
                 break
 
-        # merge: NCBI's result wins unless BOLD scored higher for that job
-        combined = dict(ncbi_results)
+        # merge: pool both sources' candidates per job and keep the overall
+        # top N by standardized score, rather than picking one source wholesale
+        all_seen_jobs = set(ncbi_results.keys()) | set(bold_results.keys())
 
-        for job, record in bold_results.items():
-            if job not in combined:
-                combined[job] = record
-            else:
-                _, existing_meta = combined[job]
-                _, new_meta = record
-                if new_meta["score"] > existing_meta["score"]:
-                    combined[job] = record
+        for job in all_seen_jobs:
+            species, marker = job
+            pool = ncbi_results.get(job, []) + bold_results.get(job, [])
+            pool.sort(key=lambda record: record[1]["score"], reverse=True)
 
-        for (species, marker), (fasta_text, meta) in combined.items():
-            meta = {"species": species, "marker": marker, **meta}
-            results.append((species, marker, fasta_text, meta))
+            for fasta_text, meta in pool[:top_n]:
+                meta = {"species": species, "marker": marker, **meta}
+                results.append((species, marker, fasta_text, meta))
 
     write_results(
         results,
