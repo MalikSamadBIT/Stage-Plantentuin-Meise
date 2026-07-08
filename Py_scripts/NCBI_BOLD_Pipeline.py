@@ -579,18 +579,27 @@ def on_source_change(value):
         retry_ncbi_checkbox.pack_forget()
         sleep_entry.delete(0, "end")
         sleep_entry.insert(0, "0.1")
-    else:
+    elif value == "BOLD":
         workers_label.pack_forget()
         workers_entry.pack_forget()
         retry_bold_checkbox.pack_forget()
         retry_ncbi_checkbox.pack(anchor="w", pady=(0, 10))
         sleep_entry.delete(0, "end")
         sleep_entry.insert(0, "1.0")
+    else:  # NCBI + BOLD - both are searched for every job, so a "retry
+        # no-matches with the other source" doesn't apply here; workers
+        # still applies since the NCBI half runs concurrently regardless.
+        workers_label.pack(anchor="w", after=sleep_entry)
+        workers_entry.pack(fill="x", pady=5, after=workers_label)
+        retry_bold_checkbox.pack_forget()
+        retry_ncbi_checkbox.pack_forget()
+        sleep_entry.delete(0, "end")
+        sleep_entry.insert(0, "0.1")
 
 
 source_selector = ctk.CTkSegmentedButton(
     scroll,
-    values=["NCBI", "BOLD"],
+    values=["NCBI", "BOLD", "NCBI + BOLD"],
     variable=source_var,
     command=on_source_change
 )
@@ -1043,7 +1052,7 @@ def run_search():
                         retry_completed, retry_total, retry_start, label="BOLD retry: "
                     )
 
-    else:  # BOLD - serial, per-species cache, circuit breaker on blocks
+    elif source == "BOLD":  # serial, per-species cache, circuit breaker on blocks
 
         cache = {}
         completed = 0
@@ -1127,6 +1136,93 @@ def run_search():
                         report_progress(
                             retry_completed, retry_total, retry_start, label="NCBI retry: "
                         )
+
+    else:  # NCBI + BOLD
+
+        try:
+            max_workers = max(1, int(workers_entry.get()))
+        except ValueError:
+            max_workers = 5
+
+        # Each source keeps its own safe pace, independent of what's
+        # actually typed in the shared "Min. interval" field - NCBI can
+        # go fast, BOLD needs a floor to avoid a Cloudflare block.
+        ncbi_rate_limiter = RateLimiter(float(sleep_entry.get()))
+        bold_rate_limiter = RateLimiter(max(float(sleep_entry.get()), 1.0))
+
+        ncbi_results = {}
+        completed = 0
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+
+            future_to_job = {
+                executor.submit(
+                    search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w, bad_words
+                ): (species, marker)
+                for species, marker in all_jobs
+            }
+
+            for future in as_completed(future_to_job):
+                job = future_to_job[future]
+
+                try:
+                    record = future.result()
+                except Exception as e:
+                    log("job error:", e)
+                    record = None
+
+                if record:
+                    ncbi_results[job] = record
+
+                completed += 1
+                report_progress(completed, total_jobs,
+                                start_time, label="NCBI: ")
+
+        bold_results = {}
+        cache = {}
+        completed = 0
+        bold_start = time.time()
+
+        for species in species_list:
+
+            for marker in markers:
+
+                log(f"Searching {species} ({marker}) on BOLD...")
+
+                try:
+                    record = search_and_fetch_bold(
+                        species, marker, bold_rate_limiter, w, bad_words, cache
+                    )
+                except BoldBlockedError as e:
+                    log(e)
+                    blocked = True
+                    break
+
+                if record:
+                    bold_results[(species, marker)] = record
+
+                completed += 1
+                report_progress(completed, total_jobs,
+                                bold_start, label="BOLD: ")
+
+            if blocked:
+                break
+
+        # merge: NCBI's result wins unless BOLD scored higher for that job
+        combined = dict(ncbi_results)
+
+        for job, record in bold_results.items():
+            if job not in combined:
+                combined[job] = record
+            else:
+                _, existing_meta = combined[job]
+                _, new_meta = record
+                if new_meta["score"] > existing_meta["score"]:
+                    combined[job] = record
+
+        for (species, marker), (fasta_text, meta) in combined.items():
+            meta = {"species": species, "marker": marker, **meta}
+            results.append((species, marker, fasta_text, meta))
 
     write_results(
         results,
