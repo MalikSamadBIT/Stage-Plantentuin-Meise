@@ -214,14 +214,15 @@ def score_bold_record(record, w, bad_words):
 
 # SEARCH + SCORE + FETCH FROM NCBI------------------------------------
 
-def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words):
+def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words, max_candidates=10):
 
     try:
         query = f'"{species}"[Organism] AND {marker}'
         log("Query:", query)
 
         rate_limiter.wait()
-        handle = Entrez.esearch(db="nucleotide", term=query, retmax=10)
+        handle = Entrez.esearch(
+            db="nucleotide", term=query, retmax=max_candidates)
         rec = Entrez.read(handle)
         handle.close()
 
@@ -354,7 +355,7 @@ def wrap_sequence(seq, width=70):
 # SEARCH + SCORE + FETCH FROM BOLD------------------------------------
 
 
-def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache):
+def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache, max_candidates=10):
 
     try:
         if species not in cache:
@@ -363,7 +364,7 @@ def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache):
         records = [
             r for r in cache[species]
             if marker_matches(r.get("marker_code"), marker) and r.get("nuc")
-        ]
+        ][:max_candidates]
 
         if not records:
             return None
@@ -805,6 +806,12 @@ workers_entry = ctk.CTkEntry(scroll)
 workers_entry.insert(0, "5")
 workers_entry.pack(fill="x", pady=5)
 
+ctk.CTkLabel(scroll, text="Candidates to score per search (top N)").pack(
+    anchor="w")
+candidates_entry = ctk.CTkEntry(scroll)
+candidates_entry.insert(0, "10")
+candidates_entry.pack(fill="x", pady=5)
+
 
 # SCORING SLIDERS (right panel)----------------------------------------------------------------------------
 
@@ -931,6 +938,11 @@ def run_search():
 
     rate_limiter = RateLimiter(float(sleep_entry.get()))
 
+    try:
+        max_candidates = max(1, int(candidates_entry.get()))
+    except ValueError:
+        max_candidates = 10
+
     source = source_var.get()
 
     all_jobs = [
@@ -985,7 +997,7 @@ def run_search():
 
             future_to_job = {
                 executor.submit(
-                    search_and_fetch_ncbi, species, marker, rate_limiter, w, bad_words
+                    search_and_fetch_ncbi, species, marker, rate_limiter, w, bad_words, max_candidates
                 ): (species, marker)
                 for species, marker in all_jobs
             }
@@ -1035,7 +1047,7 @@ def run_search():
 
                     try:
                         record = search_and_fetch_bold(
-                            species, marker, retry_rate_limiter, w, bad_words, cache
+                            species, marker, retry_rate_limiter, w, bad_words, cache, max_candidates
                         )
                     except BoldBlockedError as e:
                         log(e)
@@ -1065,7 +1077,7 @@ def run_search():
 
                 try:
                     record = search_and_fetch_bold(
-                        species, marker, rate_limiter, w, bad_words, cache
+                        species, marker, rate_limiter, w, bad_words, cache, max_candidates
                     )
                 except BoldBlockedError as e:
                     log(e)
@@ -1112,7 +1124,7 @@ def run_search():
 
                     future_to_job = {
                         executor.submit(
-                            search_and_fetch_ncbi, species, marker, retry_rate_limiter, w, bad_words
+                            search_and_fetch_ncbi, species, marker, retry_rate_limiter, w, bad_words, max_candidates
                         ): (species, marker)
                         for species, marker in retry_jobs
                     }
@@ -1157,7 +1169,7 @@ def run_search():
 
             future_to_job = {
                 executor.submit(
-                    search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w, bad_words
+                    search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w, bad_words, max_candidates
                 ): (species, marker)
                 for species, marker in all_jobs
             }
@@ -1191,7 +1203,7 @@ def run_search():
 
                 try:
                     record = search_and_fetch_bold(
-                        species, marker, bold_rate_limiter, w, bad_words, cache
+                        species, marker, bold_rate_limiter, w, bad_words, cache, max_candidates
                     )
                 except BoldBlockedError as e:
                     log(e)
