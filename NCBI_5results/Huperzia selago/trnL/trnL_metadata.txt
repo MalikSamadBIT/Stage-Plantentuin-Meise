@@ -1,0 +1,82 @@
+Huperzia selago - trnL
+======================
+Species         : Huperzia selago
+Marker          : trnL
+Source          : NCBI
+Accession       : LT606116.1
+Organism        : Huperzia selago
+Title           : Huperzia selago chloroplast genomic DNA containing trnL(UAA) intron region, isolate L1100-2-4 - Sequence 4
+Length          : 328
+Geo location    : Sweden
+Lat/Lon         : 68.397 N 18.436 E
+Collection date : Jul-2015
+Voucher         : -
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - trnL
+======================
+Species         : Huperzia selago
+Marker          : trnL
+Source          : NCBI
+Accession       : LT606115.1
+Organism        : Huperzia selago
+Title           : Huperzia selago chloroplast genomic DNA containing trnL(UAA) intron region, isolate L1100-2-4 - Sequence 3
+Length          : 310
+Geo location    : Sweden
+Lat/Lon         : 68.397 N 18.436 E
+Collection date : Jul-2015
+Voucher         : -
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - trnL
+======================
+Species         : Huperzia selago
+Marker          : trnL
+Source          : NCBI
+Accession       : LT606114.1
+Organism        : Huperzia selago
+Title           : Huperzia selago chloroplast genomic DNA containing trnL(UAA) intron region, isolate L1100-2-4 - Sequence 2
+Length          : 309
+Geo location    : Sweden
+Lat/Lon         : 68.397 N 18.436 E
+Collection date : Jul-2015
+Voucher         : -
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - trnL
+======================
+Species         : Huperzia selago
+Marker          : trnL
+Source          : NCBI
+Accession       : LT606113.1
+Organism        : Huperzia selago
+Title           : Huperzia selago chloroplast genomic DNA containing trnL(UAA) intron region, isolate L1100-2-4 - Sequence 1
+Length          : 310
+Geo location    : Sweden
+Lat/Lon         : 68.397 N 18.436 E
+Collection date : Jul-2015
+Voucher         : -
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - trnL
+======================
+Species         : Huperzia selago
+Marker          : trnL
+Source          : NCBI
+Accession       : LT606086.1
+Organism        : Huperzia selago
+Title           : Huperzia selago chloroplast genomic DNA containing trnL(UAA) intron region, isolate L1100-2-2 - Sequence 1
+Length          : 314
+Geo location    : Sweden
+Lat/Lon         : 68.397 N 18.436 E
+Collection date : Jul-2015
+Voucher         : -
+Score           : 62.0
