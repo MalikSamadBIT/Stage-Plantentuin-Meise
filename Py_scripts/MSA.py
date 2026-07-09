@@ -1,5 +1,6 @@
 import subprocess
 from Bio import AlignIO
+from pymsaviz import MsaViz
 
 Fasta_file = r"B:\Stage\NCBI_5results\Huperzia selago\matK\matK.fasta"
 Aligned_file = r"B:\Stage\NCBI_5results\Huperzia selago\matK\matK_aligned.fasta"
@@ -16,3 +17,6 @@ print(alignment_length)
 for record in alignment:
     print(record)
     print("-"*60)
+
+mv = MsaViz(Aligned_file, color_scheme="Clustal")
+mv.savefig(r"B:\Stage\NCBI_5results\Huperzia selago\matK\msa_report.png")
