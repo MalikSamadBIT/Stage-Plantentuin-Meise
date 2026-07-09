@@ -1,6 +1,9 @@
 import subprocess
 from Bio import AlignIO
 from pymsaviz import MsaViz
+import tkinter
+import customtkinter
+from PIL import Image
 
 Fasta_file = r"B:\Stage\NCBI_5results\Huperzia selago\matK\matK.fasta"
 Aligned_file = r"B:\Stage\NCBI_5results\Huperzia selago\matK\matK_aligned.fasta"
@@ -20,3 +23,25 @@ for record in alignment:
 
 mv = MsaViz(Aligned_file, color_scheme="Clustal")
 mv.savefig(r"B:\Stage\NCBI_5results\Huperzia selago\matK\msa_report.png")
+
+MSA_img = r"B:\Stage\NCBI_5results\Huperzia selago\matK\msa_report.png"
+
+
+# GUI-------------------------------------------------------------------------------
+
+customtkinter.set_appearance_mode("dark")
+customtkinter.set_default_color_theme("dark-blue")
+
+tk = customtkinter.CTk()
+
+tk.title("MSA_viz")
+tk.geometry("400x200")
+
+MSA_image = customtkinter.CTkImage(
+    light_image=Image.open(MSA_img), dark_image=Image.open(MSA_img), size=(360, 500))
+
+label = customtkinter.CTkLabel(tk, text="", image=MSA_image)
+label.pack(pady=10)
+
+
+tk.mainloop()
