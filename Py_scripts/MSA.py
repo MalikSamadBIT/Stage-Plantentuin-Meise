@@ -8,4 +8,11 @@ subprocess.run([r"B:\Stage\tools\muscle.exe", "-align", Fasta_file,
                "-output", Aligned_file], check=True)
 alignment = AlignIO.read(Aligned_file, "fasta")
 
-print(alignment)
+num_seq = len(alignment)
+print(num_seq)
+alignment_length = alignment.get_alignment_length()
+print(alignment_length)
+
+for record in alignment:
+    print(record)
+    print("-"*60)
