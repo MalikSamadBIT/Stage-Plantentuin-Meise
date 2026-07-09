@@ -1163,7 +1163,7 @@ def run_search():
         # actually typed in the shared "Min. interval" field - NCBI can
         # go fast, BOLD needs a floor to avoid a Cloudflare block.
         ncbi_rate_limiter = RateLimiter(float(sleep_entry.get()))
-        bold_rate_limiter = RateLimiter(max(float(sleep_entry.get()), 1.0))
+        bold_rate_limiter = RateLimiter(max(float(sleep_entry.get()), 2.0))
 
         ncbi_results = {}
         completed = 0
