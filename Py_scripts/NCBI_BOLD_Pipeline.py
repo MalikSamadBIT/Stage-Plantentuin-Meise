@@ -585,15 +585,13 @@ def on_source_change(value):
         workers_entry.pack_forget()
         retry_bold_checkbox.pack_forget()
         retry_ncbi_checkbox.pack(anchor="w", pady=(0, 10))
-        batch_size_label.pack_forget()
-        batch_size_entry.pack_forget()
-        batch_pause_label.pack_forget()
-        batch_pause_entry.pack_forget()
+        batch_size_label.pack(anchor="w")
+        batch_size_entry.pack(fill="x", pady=5)
+        batch_pause_label.pack(anchor="w")
+        batch_pause_entry.pack(fill="x", pady=5)
         sleep_entry.delete(0, "end")
         sleep_entry.insert(0, "1.0")
-    else:  # NCBI + BOLD - both are searched for every job, so a "retry
-        # no-matches with the other source" doesn't apply here; workers
-        # still applies since the NCBI half runs concurrently regardless.
+    else:  # NCBI + BOLD
         workers_label.pack(anchor="w", after=sleep_entry)
         workers_entry.pack(fill="x", pady=5, after=workers_label)
         retry_bold_checkbox.pack_forget()
@@ -827,12 +825,12 @@ top_n_entry.insert(0, "1")
 top_n_entry.pack(fill="x", pady=5)
 
 batch_size_label = ctk.CTkLabel(
-    scroll, text="Species per batch (NCBI + BOLD only)")
+    scroll, text="Species per batch (BOLD searches)")
 batch_size_entry = ctk.CTkEntry(scroll)
 batch_size_entry.insert(0, "20")
 
 batch_pause_label = ctk.CTkLabel(
-    scroll, text="Pause between batches, s (NCBI + BOLD only)")
+    scroll, text="Pause between batches, s (BOLD searches)")
 batch_pause_entry = ctk.CTkEntry(scroll)
 batch_pause_entry.insert(0, "30")
 # not packed here - only shown when "NCBI + BOLD" is the selected source
@@ -1057,11 +1055,7 @@ def run_search():
                 update_status(
                     f"Retrying {len(retry_jobs)} NCBI no-matches with BOLD...")
 
-                # BOLD needs a much gentler pace than NCBI - the "Min. interval"
-                # field is tuned for whichever source is currently selected, so
-                # reusing it here (likely ~0.1s, set for NCBI) would hammer BOLD
-                # and risk an immediate Cloudflare block. Enforce a safe floor
-                # instead of trusting the NCBI-tuned value.
+                # BOLD needs a much slower pace than NCBI
                 retry_rate_limiter = RateLimiter(
                     max(float(sleep_entry.get()), 1.0))
 
@@ -1092,35 +1086,63 @@ def run_search():
                         retry_completed, retry_total, retry_start, label="BOLD retry: "
                     )
 
-    elif source == "BOLD":  # serial, per-species cache, circuit breaker on blocks
+    elif source == "BOLD":  # search break
+
+        try:
+            batch_size = max(1, int(batch_size_entry.get()))
+        except ValueError:
+            batch_size = 20
+
+        try:
+            batch_pause = max(0.0, float(batch_pause_entry.get()))
+        except ValueError:
+            batch_pause = 30.0
+
+        species_batches = [
+            species_list[i:i + batch_size]
+            for i in range(0, len(species_list), batch_size)
+        ]
 
         cache = {}
         completed = 0
 
-        for species in species_list:
+        for batch_index, species_batch in enumerate(species_batches):
 
-            for marker in markers:
+            for species in species_batch:
 
-                log(f"Searching {species} ({marker}) on BOLD...")
+                for marker in markers:
 
-                try:
-                    records = search_and_fetch_bold(
-                        species, marker, rate_limiter, w, bad_words, cache, max_candidates, top_n
+                    log(
+                        f"Searching {species} ({marker}) on BOLD "
+                        f"(batch {batch_index + 1}/{len(species_batches)})..."
                     )
-                except BoldBlockedError as e:
-                    log(e)
-                    blocked = True
+
+                    try:
+                        records = search_and_fetch_bold(
+                            species, marker, rate_limiter, w, bad_words, cache, max_candidates, top_n
+                        )
+                    except BoldBlockedError as e:
+                        log(e)
+                        blocked = True
+                        break
+
+                    for fasta_text, meta in records:
+                        meta = {"species": species, "marker": marker, **meta}
+                        results.append((species, marker, fasta_text, meta))
+
+                    completed += 1
+                    report_progress(completed, total_jobs, start_time)
+
+                if blocked:
                     break
-
-                for fasta_text, meta in records:
-                    meta = {"species": species, "marker": marker, **meta}
-                    results.append((species, marker, fasta_text, meta))
-
-                completed += 1
-                report_progress(completed, total_jobs, start_time)
 
             if blocked:
                 break
+
+            is_last_batch = batch_index == len(species_batches) - 1
+            if batch_pause > 0 and not is_last_batch:
+                log(f"Pausing {batch_pause}s before next batch...")
+                time.sleep(batch_pause)
 
         if retry_ncbi_var.get():
             matched_so_far = {(species, marker)
@@ -1131,10 +1153,7 @@ def run_search():
                 update_status(
                     f"Retrying {len(retry_jobs)} BOLD no-matches with NCBI...")
 
-                # NCBI's rate cap (10 req/sec with an API key) is well known and
-                # safe regardless of whatever interval BOLD's field currently
-                # holds, so the retry gets its own NCBI-appropriate limiter
-                # instead of inheriting BOLD's much slower default.
+                # NCBI's rate cap
                 retry_rate_limiter = RateLimiter(
                     min(float(sleep_entry.get()), 0.1))
 
@@ -1175,10 +1194,7 @@ def run_search():
                             retry_completed, retry_total, retry_start, label="NCBI retry: "
                         )
 
-    else:  # NCBI + BOLD - processed in species batches, interleaving each
-        # batch's NCBI search with its BOLD search. NCBI's own work fills
-        # the gap between BOLD batches, with a guaranteed minimum pause as
-        # a backstop in case a batch finishes faster than that pause.
+    else:  # NCBI + BOLD
 
         try:
             max_workers = max(1, int(workers_entry.get()))
@@ -1195,9 +1211,6 @@ def run_search():
         except ValueError:
             batch_pause = 30.0
 
-        # Each source keeps its own safe pace, independent of what's
-        # actually typed in the shared "Min. interval" field - NCBI can
-        # go fast, BOLD needs a floor to avoid a Cloudflare block.
         ncbi_rate_limiter = RateLimiter(float(sleep_entry.get()))
         bold_rate_limiter = RateLimiter(max(float(sleep_entry.get()), 2.0))
 
@@ -1286,7 +1299,7 @@ def run_search():
                 time.sleep(batch_pause)
 
         # merge: pool both sources' candidates per job and keep the overall
-        # top N by standardized score, rather than picking one source wholesale
+        # top N by standardized score
         all_seen_jobs = set(ncbi_results.keys()) | set(bold_results.keys())
 
         for job in all_seen_jobs:
