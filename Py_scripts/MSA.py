@@ -22,7 +22,8 @@ for record in alignment:
     print(record)
     print("-"*60)
 
-mv = MsaViz(Aligned_file, color_scheme="Clustal")
+mv = MsaViz(Aligned_file, color_scheme="Clustal",
+            show_grid=True, show_count=True, show_consensus=True)
 mv.savefig(r"B:\Stage\NCBI_5results\Huperzia selago\matK\msa_report.png")
 
 
