@@ -5,6 +5,7 @@ import tkinter
 import customtkinter
 from PIL import Image
 
+
 Fasta_file = r"B:\Stage\NCBI_5results\Huperzia selago\matK\matK.fasta"
 Aligned_file = r"B:\Stage\NCBI_5results\Huperzia selago\matK\matK_aligned.fasta"
 
@@ -24,8 +25,14 @@ for record in alignment:
 mv = MsaViz(Aligned_file, color_scheme="Clustal")
 mv.savefig(r"B:\Stage\NCBI_5results\Huperzia selago\matK\msa_report.png")
 
+
+# Image----------------------------------------------------------------------------------
+
 MSA_img = r"B:\Stage\NCBI_5results\Huperzia selago\matK\msa_report.png"
 
+img = Image.open(MSA_img)
+x, y = img.size
+# print(x, y)
 
 # GUI-------------------------------------------------------------------------------
 
@@ -35,12 +42,20 @@ customtkinter.set_default_color_theme("dark-blue")
 tk = customtkinter.CTk()
 
 tk.title("MSA_viz")
-tk.geometry("400x200")
+tk.geometry("800x400")
+
+frame = customtkinter.CTkScrollableFrame(
+    tk,
+    width=700, height=y+20,
+    orientation="horizontal"
+)
+
+frame.place(anchor="c", relx=.5, rely=.5)
 
 MSA_image = customtkinter.CTkImage(
-    light_image=Image.open(MSA_img), dark_image=Image.open(MSA_img), size=(360, 500))
+    light_image=Image.open(MSA_img), dark_image=Image.open(MSA_img), size=(x, y))
 
-label = customtkinter.CTkLabel(tk, text="", image=MSA_image)
+label = customtkinter.CTkLabel(frame, text="", image=MSA_image)
 label.pack(pady=10)
 
 
