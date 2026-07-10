@@ -3,6 +3,7 @@ from Bio import AlignIO
 from pymsaviz import MsaViz
 import tkinter
 import customtkinter
+from tkinter import filedialog
 from PIL import Image
 
 
@@ -51,6 +52,35 @@ tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
 MSA_run = tabs.add("Run MSA")
 MSA_results = tabs.add("MSA Results")
+
+# FILE SELECTION-------------------------------------------------------------
+
+customtkinter.CTkLabel(MSA_run, text="📁 FILE INPUT", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(5, 2))
+
+file_path = customtkinter.StringVar()
+output_dir = customtkinter.StringVar()
+
+
+def load():
+    path = filedialog.askopenfilename(filetypes=[("FASTA", "*.fasta")])
+    file_path.set(path)
+
+
+def choose_output():
+    path = filedialog.askdirectory()
+    output_dir.set(path)
+
+
+customtkinter.CTkButton(MSA_run, text="Select FASTA File for MSA",
+                        command=load).pack(fill="x", pady=5)
+customtkinter.CTkLabel(MSA_run, textvariable=file_path).pack(
+    anchor="w", pady=(0, 10))
+
+customtkinter.CTkButton(MSA_run, text="Select Output Folder",
+                        command=choose_output).pack(fill="x", pady=5)
+customtkinter.CTkLabel(MSA_run, textvariable=output_dir).pack(
+    anchor="w", pady=(0, 10))
 
 frame = customtkinter.CTkScrollableFrame(
     MSA_results,
