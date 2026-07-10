@@ -45,8 +45,15 @@ tk = customtkinter.CTk()
 tk.title("MSA_viz")
 tk.geometry("800x400")
 
+# TABS-------------------------------------------------------------
+tabs = customtkinter.CTkTabview(tk)
+tabs.pack(fill="both", expand=True, padx=10, pady=10)
+
+MSA_run = tabs.add("Run MSA")
+MSA_results = tabs.add("MSA Results")
+
 frame = customtkinter.CTkScrollableFrame(
-    tk,
+    MSA_results,
     width=700, height=y+20,
     orientation="horizontal"
 )
