@@ -10,6 +10,7 @@ from common import RateLimiter
 from ncbi_client import search_and_fetch_ncbi
 from bold_client import BoldBlockedError, search_and_fetch_bold
 from output import write_results, write_no_matches_table, build_summary_dataframe
+from retrieval_rate_tab import build_retrieval_rate_tab
 
 df = None
 retrieval_data = None
@@ -31,6 +32,8 @@ tabs.pack(fill="both", expand=True, padx=10, pady=10)
 Fetch_Fasta = tabs.add("Fetch FASTA")
 Retrieval_Rate = tabs.add("Retrieval Rate")
 Terminal = tabs.add("Terminal")
+
+build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 
 
 # LEFT PANEL--------------------------------------------------------
@@ -908,5 +911,15 @@ def update_status(text):
     Fetch_Fasta.after(0, lambda: status_label.configure(text=text))
     Terminal.after(0, lambda: terminal_status_label.configure(text=text))
 
+
+def on_closing():
+    # ThreadPoolExecutor workers spawned by run_search() are non-daemon,
+    # so a plain exit would hang until any in-flight NCBI/BOLD calls
+    # finish. Force-kill the process instead.
+    app.destroy()
+    os._exit(0)
+
+
+app.protocol("WM_DELETE_WINDOW", on_closing)
 
 app.mainloop()
