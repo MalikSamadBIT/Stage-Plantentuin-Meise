@@ -1,4 +1,7 @@
 import os
+from collections import defaultdict
+
+import pandas as pd
 
 from common import sanitize
 
@@ -70,6 +73,42 @@ def write_no_matches_table(path, species_list, markers, matched_set):
 
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
+
+
+def build_summary_dataframe(results, species_list, markers):
+    # one pass over results, tallying counts per species instead of
+    # re-scanning the whole list once per species
+    marker_counts = defaultdict(lambda: defaultdict(int))
+    source_counts = defaultdict(lambda: defaultdict(int))
+
+    for species, marker, _, meta in results:
+        marker_counts[species][marker] += 1
+        source = meta.get("source") or "Unknown"
+        source_counts[species][source] += 1
+
+    rows = []
+
+    for species in species_list:
+        row = {"Species": species}
+
+        for marker in markers:
+            row[f"{marker}_count"] = marker_counts[species].get(marker, 0)
+
+        row["NCBI_count"] = source_counts[species].get("NCBI", 0)
+        row["BOLD_count"] = source_counts[species].get("BOLD", 0)
+        row["Total_count"] = sum(marker_counts[species].values())
+
+        rows.append(row)
+
+    columns = ["Species"] + [f"{marker}_count" for marker in markers] + \
+        ["NCBI_count", "BOLD_count", "Total_count"]
+
+    return pd.DataFrame(rows, columns=columns)
+
+
+def write_summary_csv(path, results, species_list, markers):
+    df = build_summary_dataframe(results, species_list, markers)
+    df.to_csv(path, index=False)
 
 
 def write_results(results, base_dir, separate_species, separate_marker, save_metadata):

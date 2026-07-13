@@ -9,9 +9,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from common import RateLimiter
 from ncbi_client import search_and_fetch_ncbi
 from bold_client import BoldBlockedError, search_and_fetch_bold
-from output import write_results, write_no_matches_table
+from output import write_results, write_no_matches_table, build_summary_dataframe
 
 df = None
+retrieval_data = None
 
 
 # GUI SETUP---------------------------------------
@@ -28,6 +29,7 @@ tabs = ctk.CTkTabview(app)
 tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
 Fetch_Fasta = tabs.add("Fetch FASTA")
+Retrieval_Rate = tabs.add("Retrieval Rate")
 Terminal = tabs.add("Terminal")
 
 
@@ -209,6 +211,7 @@ separate_species_var = ctk.BooleanVar(value=True)
 separate_marker_var = ctk.BooleanVar(value=True)
 save_metadata_var = ctk.BooleanVar(value=True)
 save_no_matches_var = ctk.BooleanVar(value=True)
+save_summary_var = ctk.BooleanVar(value=True)
 
 
 def update_preview(*args):
@@ -233,6 +236,9 @@ def update_preview(*args):
 
     if save_no_matches_var.get():
         text += "\n  no_matches.txt"
+
+    if save_summary_var.get():
+        text += "\n  summary.csv"
 
     preview_label.configure(text=text)
 
@@ -278,6 +284,14 @@ no_matches_checkbox = ctk.CTkCheckBox(
     command=update_preview
 )
 no_matches_checkbox.pack(anchor="w", pady=2)
+
+summary_checkbox = ctk.CTkCheckBox(
+    scroll,
+    text="Save per-species sequence count summary (summary.csv)",
+    variable=save_summary_var,
+    command=update_preview
+)
+summary_checkbox.pack(anchor="w", pady=2)
 
 
 # SETTINGS-----------------------------------------------------------------------------
@@ -407,7 +421,7 @@ def run_search():
 
     update_status("Searching...")
 
-    global df
+    global df, retrieval_data
 
     species_list = list(df["Name"]) if df is not None else []
     species_list += [
@@ -815,6 +829,14 @@ def run_search():
         no_matches_path = os.path.join(output_dir.get(), "no_matches.txt")
         write_no_matches_table(
             no_matches_path, species_list, markers, matched_set)
+
+    # built regardless of the "Save summary.csv" checkbox, so the
+    # Retrieval Rate tab always has something to display after a run
+    retrieval_data = build_summary_dataframe(results, species_list, markers)
+
+    if save_summary_var.get():
+        summary_path = os.path.join(output_dir.get(), "summary.csv")
+        retrieval_data.to_csv(summary_path, index=False)
 
     Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
 
