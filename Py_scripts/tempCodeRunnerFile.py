@@ -1,2 +1,2 @@
 
-file_path = ctk.StringVar()
+              'orange', 'yellow', 'cyan', 'darkviolet']
