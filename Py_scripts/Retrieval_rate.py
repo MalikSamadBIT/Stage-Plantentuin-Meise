@@ -1,5 +1,5 @@
 import tkinter
-from tkinter import filedialog
+from tkinter import filedialog, ttk
 import customtkinter
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -7,6 +7,15 @@ import pandas as pd
 
 
 df_plot = pd.read_csv(r"B:\Stage\test\summary.csv")
+
+# Colorblind-friendly categorical palette
+CB_COLORS = ["#2a78d6", "#1baf7a", "#eda100",
+             "#008300", "#4a3aa7", "#e34948", "#e87ba4", "#eb6834"]
+
+
+def get_entry_value(entry):
+    value = entry.get()
+    return value if value else entry.cget("placeholder_text")
 
 
 def Plots(selected_plot):
@@ -24,13 +33,11 @@ def Plots(selected_plot):
             m = df_plot[marker].sum()
             counts.append(m)
 
-        bar_colors = ['red', 'blue', 'green',
-                      'orange', 'yellow', 'cyan']
+        ax.bar(markers, counts, color=CB_COLORS[:len(markers)])
 
-        ax.bar(markers, counts, color=bar_colors)
-
-        ax.set_ylabel("Nr of FASTA sequences", fontsize=14)
-        ax.set_title("FASTA Retrieval Rate", fontsize=16)
+        ax.set_xlabel(get_entry_value(plot_xlabel), fontsize=14)
+        ax.set_ylabel(get_entry_value(plot_ylabel), fontsize=14)
+        ax.set_title(get_entry_value(plot_title), fontsize=16)
         ax.tick_params(axis="both", labelsize=12)
         plt.setp(ax.get_xticklabels(), rotation=20, ha="right")
 
@@ -52,7 +59,10 @@ def Plots(selected_plot):
             m = df_plot[marker].sum()
             counts.append(m)
 
-        ax.pie(counts, labels=markers, autopct='%1.1f%%')
+        ax.pie(counts, labels=markers, autopct='%1.1f%%',
+               colors=CB_COLORS[:len(markers)],
+               textprops={"fontsize": 14})
+        ax.set_title(get_entry_value(plot_title), fontsize=16)
         canvas.draw()
 
     if selected_plot == "NCBI/BOLD":
@@ -66,12 +76,11 @@ def Plots(selected_plot):
             m = df_plot[marker].sum()
             counts.append(m)
 
-        bar_colors = ['red', 'blue']
+        ax.bar(markers, counts, color=CB_COLORS[:len(markers)])
 
-        ax.bar(markers, counts, color=bar_colors)
-
-        ax.set_ylabel("Nr of FASTA sequences", fontsize=14)
-        ax.set_title("FASTA Retrieval Rate", fontsize=16)
+        ax.set_xlabel(get_entry_value(plot_xlabel), fontsize=14)
+        ax.set_ylabel(get_entry_value(plot_ylabel), fontsize=14)
+        ax.set_title(get_entry_value(plot_title), fontsize=16)
         ax.tick_params(axis="both", labelsize=12)
         plt.setp(ax.get_xticklabels(), rotation=20, ha="right")
 
@@ -81,6 +90,21 @@ def Plots(selected_plot):
 
         fig.tight_layout(pad=3)
         canvas.draw()
+
+    if selected_plot == "Table":
+        table_frame.tkraise()
+
+        tree.delete(*tree.get_children())
+        tree["columns"] = list(df_plot.columns)
+        for col in df_plot.columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=100, anchor="center")
+        for _, row in df_plot.iterrows():
+            tree.insert("", "end", values=list(row))
+    else:
+        canvas_container.tkraise()
+
+    resize_grip.lift()
 
 
 def save_plot():
@@ -105,8 +129,22 @@ tk.geometry("760x520")
 
 plots = ["Barplot", "Piechart", "Table", "NCBI/BOLD"]
 
-plot_options = customtkinter.CTkOptionMenu(tk, values=plots)
-plot_options.pack(pady=40)
+options_frame = customtkinter.CTkFrame(tk, fg_color="transparent")
+options_frame.pack(pady=40)
+
+plot_options = customtkinter.CTkOptionMenu(options_frame, values=plots)
+plot_options.pack(side=tkinter.LEFT, padx=5)
+
+plot_title = customtkinter.CTkEntry(
+    options_frame, placeholder_text="FASTA Retrieval Rate")
+plot_title.pack(side=tkinter.LEFT, padx=5)
+
+plot_xlabel = customtkinter.CTkEntry(options_frame, placeholder_text="X-label")
+plot_xlabel.pack(side=tkinter.LEFT, padx=5)
+
+plot_ylabel = customtkinter.CTkEntry(
+    options_frame, placeholder_text="Nr of FASTA sequences")
+plot_ylabel.pack(side=tkinter.LEFT, padx=5)
 
 button_frame = customtkinter.CTkFrame(tk, fg_color="transparent")
 button_frame.pack(pady=10)
@@ -126,10 +164,42 @@ plot_frame = tkinter.Frame(
     tk, bg="white", highlightbackground="#3a3a3a", highlightthickness=1)
 plot_frame.place(x=25, y=250, width=710, height=250)
 
+canvas_container = tkinter.Frame(plot_frame)
+canvas_container.place(x=0, y=0, relwidth=1, relheight=1)
+
 fig, ax = plt.subplots(figsize=(7, 3.6), dpi=100)
-canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+canvas = FigureCanvasTkAgg(fig, master=canvas_container)
 canvas_widget = canvas.get_tk_widget()
 canvas_widget.pack(fill=tkinter.BOTH, expand=True)
+
+table_style = ttk.Style()
+table_style.theme_use("clam")
+table_style.configure("Treeview",
+                      background="#2b2b2b", fieldbackground="#2b2b2b",
+                      foreground="white", rowheight=40,
+                      font=("Arial", 18))
+table_style.configure("Treeview.Heading",
+                      background="#3a3a3a", foreground="white",
+                      font=("Arial", 18, "bold"))
+
+table_frame = tkinter.Frame(plot_frame)
+table_frame.place(x=0, y=0, relwidth=1, relheight=1)
+
+table_vsb = ttk.Scrollbar(table_frame, orient="vertical")
+table_hsb = ttk.Scrollbar(table_frame, orient="horizontal")
+
+tree = ttk.Treeview(table_frame, show="headings",
+                    yscrollcommand=table_vsb.set,
+                    xscrollcommand=table_hsb.set)
+
+table_vsb.configure(command=tree.yview)
+table_hsb.configure(command=tree.xview)
+
+table_vsb.pack(side=tkinter.RIGHT, fill=tkinter.Y)
+table_hsb.pack(side=tkinter.BOTTOM, fill=tkinter.X)
+tree.pack(fill=tkinter.BOTH, expand=True)
+
+canvas_container.tkraise()
 
 
 def on_resize(event):
