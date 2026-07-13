@@ -48,7 +48,11 @@ tk.geometry("700x450")
 
 plots = ["Barplot", "piechart", "Table"]
 
-plot_options = customtkinter.CTkOptionMenu(tk, values=plots, command=Plots)
+plot_options = customtkinter.CTkOptionMenu(tk, values=plots)
 plot_options.pack(pady=40)
+
+display_button = customtkinter.CTkButton(
+    tk, text="Display", command=lambda: Plots(plot_options.get()))
+display_button.pack(pady=10)
 
 tk.mainloop()
