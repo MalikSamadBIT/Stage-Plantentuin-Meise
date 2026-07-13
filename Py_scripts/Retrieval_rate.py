@@ -13,6 +13,7 @@ def Plots(selected_plot):
 
     if selected_plot == "Barplot":
         ax.clear()
+        ax.set_aspect("auto")
         markers = ["ITS1_count",  "ITS2_count",  "rbcL_count",
                    "matK_count",  "trnL_count",  "psbA-trnH_count"]
 
@@ -27,27 +28,43 @@ def Plots(selected_plot):
 
         ax.bar(markers, counts, color=bar_colors)
 
-        ax.set_ylabel("Nr of FASTA sequences")
-        ax.set_title("FASTA Retrieval Rate")
+        ax.set_ylabel("Nr of FASTA sequences", fontsize=14)
+        ax.set_title("FASTA Retrieval Rate", fontsize=16)
+        ax.tick_params(axis="both", labelsize=12)
+        plt.setp(ax.get_xticklabels(), rotation=20, ha="right")
 
         for index, value in enumerate(counts):
-            ax.text(index, value, str(value), ha="center", va="bottom")
+            ax.text(index, value, str(value),
+                    ha="center", va="bottom", fontsize=12)
 
-        fig.tight_layout()
+        fig.tight_layout(pad=3)
         canvas.draw()
 
+    if selected_plot == "Piechart":
+        ax.clear()
+        markers = ["ITS1_count",  "ITS2_count",  "rbcL_count",
+                   "matK_count",  "trnL_count",  "psbA-trnH_count"]
+
+        counts = []
+
+        for marker in markers:
+            m = df_plot[marker].sum()
+            counts.append(m)
+
+        ax.pie(counts, labels=markers)
+        canvas.draw()
+
+
 # GUI--------------------------------------------------------------------
-
-
 customtkinter.set_appearance_mode("dark")
 customtkinter.set_default_color_theme("dark-blue")
 
 tk = customtkinter.CTk()
 
 tk.title("plot")
-tk.geometry("700x450")
+tk.geometry("760x520")
 
-plots = ["Barplot", "piechart", "Table"]
+plots = ["Barplot", "Piechart", "Table"]
 
 plot_options = customtkinter.CTkOptionMenu(tk, values=plots)
 plot_options.pack(pady=40)
@@ -58,7 +75,7 @@ display_button.pack(pady=10)
 
 fig, ax = plt.subplots(figsize=(7, 3.6), dpi=100)
 canvas = FigureCanvasTkAgg(fig, master=tk)
-canvas.get_tk_widget().pack(fill=tkinter.BOTH, expand=True)
+canvas.get_tk_widget().pack(fill=tkinter.BOTH, expand=True, padx=25, pady=25)
 
 
 def on_closing():
