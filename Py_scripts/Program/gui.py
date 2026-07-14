@@ -30,8 +30,12 @@ tabs = ctk.CTkTabview(app)
 tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
 Fetch_Fasta = tabs.add("Fetch FASTA")
+Settings = tabs.add("Settings")
 Retrieval_Rate = tabs.add("Retrieval Rate")
 Terminal = tabs.add("Terminal")
+
+settings_scroll = ctk.CTkScrollableFrame(Settings)
+settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
 build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 
@@ -298,42 +302,45 @@ summary_checkbox.pack(anchor="w", pady=2)
 
 
 # SETTINGS-----------------------------------------------------------------------------
+# lives in its own tab (Settings) instead of the Fetch FASTA tab, so more
+# settings can be added later without further crowding the search form.
 
-ctk.CTkLabel(scroll, text="⚙ SETTINGS", font=(
+ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
 
-ctk.CTkLabel(scroll, text="Min. interval between requests (s)").pack(
+ctk.CTkLabel(settings_scroll, text="Min. interval between requests (s)").pack(
     anchor="w")
-sleep_entry = ctk.CTkEntry(scroll)
+sleep_entry = ctk.CTkEntry(settings_scroll)
 sleep_entry.insert(0, "0.1")
 sleep_entry.pack(fill="x", pady=5)
 
-workers_label = ctk.CTkLabel(scroll, text="Concurrent workers (NCBI only)")
+workers_label = ctk.CTkLabel(
+    settings_scroll, text="Concurrent workers (NCBI only)")
 workers_label.pack(anchor="w")
-workers_entry = ctk.CTkEntry(scroll)
+workers_entry = ctk.CTkEntry(settings_scroll)
 workers_entry.insert(0, "5")
 workers_entry.pack(fill="x", pady=5)
 
-ctk.CTkLabel(scroll, text="Candidates to score per search (top N)").pack(
+ctk.CTkLabel(settings_scroll, text="Candidates to score per search (top N)").pack(
     anchor="w")
-candidates_entry = ctk.CTkEntry(scroll)
+candidates_entry = ctk.CTkEntry(settings_scroll)
 candidates_entry.insert(0, "10")
 candidates_entry.pack(fill="x", pady=5)
 
-ctk.CTkLabel(scroll, text="Results to save per marker (top N)").pack(
+ctk.CTkLabel(settings_scroll, text="Results to save per marker (top N)").pack(
     anchor="w")
-top_n_entry = ctk.CTkEntry(scroll)
+top_n_entry = ctk.CTkEntry(settings_scroll)
 top_n_entry.insert(0, "1")
 top_n_entry.pack(fill="x", pady=5)
 
 batch_size_label = ctk.CTkLabel(
-    scroll, text="Species per batch (BOLD searches)")
-batch_size_entry = ctk.CTkEntry(scroll)
+    settings_scroll, text="Species per batch (BOLD searches)")
+batch_size_entry = ctk.CTkEntry(settings_scroll)
 batch_size_entry.insert(0, "20")
 
 batch_pause_label = ctk.CTkLabel(
-    scroll, text="Pause between batches, s (BOLD searches)")
-batch_pause_entry = ctk.CTkEntry(scroll)
+    settings_scroll, text="Pause between batches, s (BOLD searches)")
+batch_pause_entry = ctk.CTkEntry(settings_scroll)
 batch_pause_entry.insert(0, "30")
 # not packed here - only shown when BOLD or "NCBI + BOLD" is selected
 
