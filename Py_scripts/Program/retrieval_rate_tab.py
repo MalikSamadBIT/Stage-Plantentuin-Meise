@@ -1,7 +1,9 @@
+import os
 import tkinter
 from tkinter import filedialog, ttk
 
 import customtkinter as ctk
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -31,12 +33,99 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
         value = entry.get()
         return value if value else entry.cget("placeholder_text")
 
+    # TABLE FILTER/SORT STATE-------------------------------------------
+    # full_df: the unfiltered data for whatever is currently shown in Table
+    #          view - filtering always re-derives from this, not from a
+    #          previous filter result, matching how Excel's column filter
+    #          always operates on the full column.
+    # view_df: full_df with the active filter/sort applied - what's
+    #          actually populated into the Treeview right now.
+
+    full_df = None
+    view_df = None
+    sort_state = {}
+    loaded_df = None  # set by "Load CSV"; overrides get_data() until cleared
+
+    def populate_tree(df_view):
+        tree.delete(*tree.get_children())
+        tree["columns"] = list(df_view.columns)
+        for col in df_view.columns:
+            tree.heading(col, text=col, command=lambda c=col: sort_table(c))
+            tree.column(col, width=100, anchor="center")
+        for _, row in df_view.iterrows():
+            tree.insert("", "end", values=list(row))
+
+    def render_table(df_plot):
+        nonlocal full_df, view_df
+        full_df = df_plot
+        view_df = df_plot
+        sort_state.clear()
+
+        filter_column_menu.configure(
+            values=["(all columns)"] + list(df_plot.columns))
+        filter_column_var.set("(all columns)")
+        filter_entry.delete(0, "end")
+
+        populate_tree(view_df)
+
+    def _column_matches(series, query):
+        # numeric columns (the *_count columns) need an exact match - a
+        # substring "contains" on the stringified value would make "0"
+        # match "10", "20", "30", etc, which is not what a filter should do
+        if pd.api.types.is_numeric_dtype(series):
+            try:
+                query_num = float(query)
+            except ValueError:
+                return pd.Series(False, index=series.index)
+            return series == query_num
+
+        return series.astype(str).str.lower().str.contains(query.lower(), na=False)
+
+    def apply_table_filter(*_):
+        nonlocal view_df
+
+        if full_df is None:
+            return
+
+        query = filter_entry.get().strip()
+        column = filter_column_var.get()
+
+        if not query:
+            view_df = full_df
+        elif column and column != "(all columns)":
+            view_df = full_df[_column_matches(full_df[column], query)]
+        else:
+            mask = pd.Series(False, index=full_df.index)
+            for col in full_df.columns:
+                mask = mask | _column_matches(full_df[col], query)
+            view_df = full_df[mask]
+
+        populate_tree(view_df)
+
+    def clear_table_filter():
+        filter_entry.delete(0, "end")
+        filter_column_var.set("(all columns)")
+        apply_table_filter()
+
+    def sort_table(col):
+        nonlocal view_df
+
+        if view_df is None or view_df.empty:
+            return
+
+        ascending = not sort_state.get(col, False)
+        sort_state[col] = ascending
+
+        view_df = view_df.sort_values(by=col, ascending=ascending, kind="stable")
+        populate_tree(view_df)
+
     def Plots(selected_plot):
-        df_plot = get_data()
+        df_plot = loaded_df if loaded_df is not None else get_data()
 
         if df_plot is None or df_plot.empty:
             status_label.configure(
-                text="No data yet - run a search on the Fetch FASTA tab first."
+                text="No data yet - run a search on the Fetch FASTA tab first, "
+                     "or load a previous run's summary CSV."
             )
             return
 
@@ -102,18 +191,42 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
 
         if selected_plot == "Table":
             table_frame.tkraise()
-
-            tree.delete(*tree.get_children())
-            tree["columns"] = list(df_plot.columns)
-            for col in df_plot.columns:
-                tree.heading(col, text=col)
-                tree.column(col, width=100, anchor="center")
-            for _, row in df_plot.iterrows():
-                tree.insert("", "end", values=list(row))
+            render_table(df_plot)
         else:
             canvas_container.tkraise()
 
         resize_grip.lift()
+
+    def load_csv():
+        nonlocal loaded_df
+
+        file_path = filedialog.askopenfilename(
+            parent=root,
+            title="Select a previous run's summary CSV",
+            filetypes=[("CSV files", "*.csv")]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            new_df = pd.read_csv(file_path)
+        except Exception as e:
+            status_label.configure(text=f"Failed to load CSV: {e}")
+            return
+
+        if "Species" not in new_df.columns:
+            status_label.configure(
+                text="That file doesn't look like a retrieval summary "
+                     "CSV (missing a 'Species' column)."
+            )
+            return
+
+        loaded_df = new_df
+        Plots(plot_options.get())
+        # set after Plots(), since Plots() clears status_label once it has
+        # valid data to show - this confirmation needs to be the last word
+        status_label.configure(text=f"Loaded: {os.path.basename(file_path)}")
 
     def save_plot():
         file_path = filedialog.asksaveasfilename(
@@ -152,6 +265,10 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
         button_frame, text="Display", command=lambda: Plots(plot_options.get()))
     display_button.pack(side=tkinter.LEFT, padx=5)
 
+    load_button = ctk.CTkButton(
+        button_frame, text="Load CSV", command=load_csv)
+    load_button.pack(side=tkinter.LEFT, padx=5)
+
     save_button = ctk.CTkButton(
         button_frame, text="Save Plot", command=save_plot)
     save_button.pack(side=tkinter.LEFT, padx=5)
@@ -188,6 +305,32 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
     table_frame = tkinter.Frame(plot_frame)
     table_frame.place(x=0, y=0, relwidth=1, relheight=1)
 
+    filter_bar = tkinter.Frame(table_frame, bg="#2b2b2b")
+    filter_bar.pack(side=tkinter.TOP, fill=tkinter.X)
+
+    tkinter.Label(
+        filter_bar, text="Filter:", bg="#2b2b2b", fg="white"
+    ).pack(side=tkinter.LEFT, padx=(8, 4), pady=6)
+
+    filter_column_var = tkinter.StringVar(value="(all columns)")
+    filter_column_menu = ttk.Combobox(
+        filter_bar, textvariable=filter_column_var,
+        state="readonly", width=18
+    )
+    filter_column_menu.pack(side=tkinter.LEFT, padx=4)
+
+    filter_entry = tkinter.Entry(filter_bar)
+    filter_entry.pack(side=tkinter.LEFT, padx=4, fill=tkinter.X, expand=True)
+    filter_entry.bind("<KeyRelease>", lambda event: apply_table_filter())
+
+    tkinter.Button(
+        filter_bar, text="Apply", command=apply_table_filter
+    ).pack(side=tkinter.LEFT, padx=4)
+
+    tkinter.Button(
+        filter_bar, text="Clear", command=clear_table_filter
+    ).pack(side=tkinter.LEFT, padx=(4, 8))
+
     table_vsb = ttk.Scrollbar(table_frame, orient="vertical")
     table_hsb = ttk.Scrollbar(table_frame, orient="horizontal")
 
@@ -202,7 +345,7 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
 
     table_vsb.pack(side=tkinter.RIGHT, fill=tkinter.Y)
     table_hsb.pack(side=tkinter.BOTTOM, fill=tkinter.X)
-    tree.pack(fill=tkinter.BOTH, expand=True)
+    tree.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=True)
 
     canvas_container.tkraise()
 
