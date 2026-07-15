@@ -75,6 +75,31 @@ def write_no_matches_table(path, species_list, markers, matched_set):
         f.write("\n".join(lines) + "\n")
 
 
+def parse_no_matches_table(path):
+    # inverse of write_no_matches_table: reconstructs the exact
+    # (species, marker) pairs marked "No", for resuming a partial run
+    with open(path, "r", encoding="utf-8") as f:
+        lines = [line.rstrip("\n") for line in f if line.strip()]
+
+    if len(lines) < 3:
+        return []
+
+    header, _separator, *data_lines = lines
+
+    markers = [part.strip() for part in header.split("|")[1:]]
+
+    pending = []
+    for line in data_lines:
+        parts = [part.strip() for part in line.split("|")]
+        species = parts[0]
+        statuses = parts[1:]
+        for marker, status in zip(markers, statuses):
+            if status == "No":
+                pending.append((species, marker))
+
+    return pending
+
+
 def build_summary_dataframe(results, species_list, markers):
     # one pass over results, tallying counts per species instead of
     # re-scanning the whole list once per species

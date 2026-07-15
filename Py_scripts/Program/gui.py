@@ -4,16 +4,22 @@ import pandas as pd
 import os
 import time
 import threading
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from common import RateLimiter
 from ncbi_client import search_and_fetch_ncbi
 from bold_client import BoldBlockedError, search_and_fetch_bold
-from output import write_results, write_no_matches_table, build_summary_dataframe, write_zero_species_csv
+from output import (
+    write_results, write_no_matches_table, build_summary_dataframe,
+    write_zero_species_csv, parse_no_matches_table
+)
 from retrieval_rate_tab import build_retrieval_rate_tab
 
 df = None
 retrieval_data = None
+resume_jobs = None  # set by "Load no_matches.txt to resume"; overrides
+                     # the normal species/marker selection until cleared
 
 
 # GUI SETUP---------------------------------------
@@ -155,6 +161,76 @@ ctk.CTkLabel(scroll, text="Or enter species names (comma separated)").pack(
     anchor="w")
 species_textbox = ctk.CTkTextbox(scroll, height=80)
 species_textbox.pack(fill="x", pady=(0, 10))
+
+
+# RESUME FROM A PARTIAL RUN-----------------------------------------------------------
+# Loads a previous run's no_matches.txt and, when active, overrides the
+# species textbox/CSV and marker checkboxes entirely - only the exact
+# missing (species, marker) pairs from that file get searched.
+
+ctk.CTkLabel(scroll, text="🔁 RESUME", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(5, 2))
+
+resume_status_label = ctk.CTkLabel(
+    scroll, text="Not resuming - using species/markers above.", text_color="gray"
+)
+resume_status_label.pack(anchor="w", pady=(0, 5))
+
+
+def load_resume_file():
+    global resume_jobs
+
+    path = filedialog.askopenfilename(
+        title="Select a previous run's no_matches.txt",
+        filetypes=[("Text files", "*.txt")]
+    )
+
+    if not path:
+        return
+
+    try:
+        pending = parse_no_matches_table(path)
+    except Exception as e:
+        resume_status_label.configure(
+            text=f"Failed to read that file: {e}", text_color="red"
+        )
+        return
+
+    if not pending:
+        resume_status_label.configure(
+            text="That file has no missing species/marker combinations "
+                 "to resume (or isn't a no_matches.txt file).",
+            text_color="red"
+        )
+        return
+
+    resume_jobs = pending
+    resume_status_label.configure(
+        text=f"Resuming {len(resume_jobs)} missing species/marker "
+             f"combination(s) from {os.path.basename(path)}.",
+        text_color="orange"
+    )
+
+
+def clear_resume():
+    global resume_jobs
+    resume_jobs = None
+    resume_status_label.configure(
+        text="Not resuming - using species/markers above.", text_color="gray"
+    )
+
+
+resume_button_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+resume_button_frame.pack(fill="x", pady=(0, 10))
+
+ctk.CTkButton(
+    resume_button_frame, text="Load no_matches.txt to resume",
+    command=load_resume_file
+).pack(side="left", padx=(0, 5))
+
+ctk.CTkButton(
+    resume_button_frame, text="Clear", command=clear_resume, width=60
+).pack(side="left")
 
 
 # MARKERS + BAD WORDS-----------------------------------------------------------------
@@ -445,27 +521,46 @@ def run_search():
 
     global df, retrieval_data
 
-    species_list = list(df["Name"]) if df is not None else []
-    species_list += [
-        s.strip() for s in species_textbox.get("1.0", "end").split(",")
-        if s.strip()
-    ]
-    species_list = list(dict.fromkeys(species_list))
+    if resume_jobs is not None:
+        # resume mode: the exact (species, marker) pairs come from a
+        # loaded no_matches.txt, bypassing the species textbox/CSV and
+        # marker checkboxes entirely
+        all_jobs = list(resume_jobs)
+        species_list = list(dict.fromkeys(species for species, marker in all_jobs))
+        markers = list(dict.fromkeys(marker for species, marker in all_jobs))
 
-    if not species_list or not output_dir.get():
-        update_status(
-            "Select a species CSV/textbox and an output folder first!")
-        Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
-        return
+        if not output_dir.get():
+            update_status("Select an output folder first!")
+            Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
+            return
+    else:
+        species_list = list(df["Name"]) if df is not None else []
+        species_list += [
+            s.strip() for s in species_textbox.get("1.0", "end").split(",")
+            if s.strip()
+        ]
+        species_list = list(dict.fromkeys(species_list))
 
-    markers = [m for m, v in marker_vars.items() if v.get()]
-    markers += [m.strip() for m in extra_markers.get().split(",") if m.strip()]
-    markers = list(dict.fromkeys(markers))
+        if not species_list or not output_dir.get():
+            update_status(
+                "Select a species CSV/textbox and an output folder first!")
+            Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
+            return
 
-    if not markers:
-        update_status("Select at least one marker!")
-        Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
-        return
+        markers = [m for m, v in marker_vars.items() if v.get()]
+        markers += [m.strip() for m in extra_markers.get().split(",") if m.strip()]
+        markers = list(dict.fromkeys(markers))
+
+        if not markers:
+            update_status("Select at least one marker!")
+            Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
+            return
+
+        all_jobs = [
+            (species, marker)
+            for marker in markers
+            for species in species_list
+        ]
 
     bad_words = [w for w, v in bad_words_default.items() if v.get()]
     bad_words += [w.strip() for w in extra_bad.get().split(",") if w.strip()]
@@ -494,18 +589,19 @@ def run_search():
 
     source = source_var.get()
 
-    all_jobs = [
-        (species, marker)
-        for marker in markers
-        for species in species_list
-    ]
-
     total_jobs = len(all_jobs)
 
     if total_jobs == 0:
         update_status("No species/marker combinations to search!")
         Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
         return
+
+    # which markers to actually search for a given species - normally
+    # every selected marker, but a resume run may only need specific
+    # markers per species, not the full species x markers cross product
+    jobs_by_species = defaultdict(list)
+    for species, marker in all_jobs:
+        jobs_by_species[species].append(marker)
 
     results = []
     blocked = False
@@ -633,7 +729,7 @@ def run_search():
 
             for species in species_batch:
 
-                for marker in markers:
+                for marker in jobs_by_species[species]:
 
                     log(
                         f"Searching {species} ({marker}) on BOLD "
@@ -757,7 +853,7 @@ def run_search():
             batch_jobs = [
                 (species, marker)
                 for species in species_batch
-                for marker in markers
+                for marker in jobs_by_species[species]
             ]
 
             # NCBI portion of this batch (concurrent)
@@ -790,7 +886,7 @@ def run_search():
             # BOLD portion of this batch (serial, cached, circuit breaker)
             for species in species_batch:
 
-                for marker in markers:
+                for marker in jobs_by_species[species]:
 
                     log(
                         f"Searching {species} ({marker}) on BOLD "
