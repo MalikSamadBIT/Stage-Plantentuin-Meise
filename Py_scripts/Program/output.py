@@ -111,6 +111,14 @@ def write_summary_csv(path, results, species_list, markers):
     df.to_csv(path, index=False)
 
 
+def write_zero_species_csv(path, retrieval_data):
+    # species that returned zero sequences across every marker/source -
+    # a plain single-column list, easy to paste back into the species
+    # textbox for a follow-up retry run
+    zero_df = retrieval_data.loc[retrieval_data["Total_count"] == 0, ["Species"]]
+    zero_df.to_csv(path, index=False)
+
+
 def write_results(results, base_dir, separate_species, separate_marker, save_metadata):
 
     groups = {}

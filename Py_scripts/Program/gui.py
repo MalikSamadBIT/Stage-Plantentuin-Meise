@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from common import RateLimiter
 from ncbi_client import search_and_fetch_ncbi
 from bold_client import BoldBlockedError, search_and_fetch_bold
-from output import write_results, write_no_matches_table, build_summary_dataframe
+from output import write_results, write_no_matches_table, build_summary_dataframe, write_zero_species_csv
 from retrieval_rate_tab import build_retrieval_rate_tab
 
 df = None
@@ -219,6 +219,7 @@ separate_marker_var = ctk.BooleanVar(value=True)
 save_metadata_var = ctk.BooleanVar(value=True)
 save_no_matches_var = ctk.BooleanVar(value=True)
 save_summary_var = ctk.BooleanVar(value=True)
+save_zero_species_var = ctk.BooleanVar(value=True)
 
 
 def update_preview(*args):
@@ -246,6 +247,9 @@ def update_preview(*args):
 
     if save_summary_var.get():
         text += "\n  summary.csv"
+
+    if save_zero_species_var.get():
+        text += "\n  zero_species.csv"
 
     preview_label.configure(text=text)
 
@@ -299,6 +303,14 @@ summary_checkbox = ctk.CTkCheckBox(
     command=update_preview
 )
 summary_checkbox.pack(anchor="w", pady=2)
+
+zero_species_checkbox = ctk.CTkCheckBox(
+    scroll,
+    text="Save list of species with zero sequences (zero_species.csv)",
+    variable=save_zero_species_var,
+    command=update_preview
+)
+zero_species_checkbox.pack(anchor="w", pady=2)
 
 
 # SETTINGS-----------------------------------------------------------------------------
@@ -847,6 +859,10 @@ def run_search():
     if save_summary_var.get():
         summary_path = os.path.join(output_dir.get(), "summary.csv")
         retrieval_data.to_csv(summary_path, index=False)
+
+    if save_zero_species_var.get():
+        zero_species_path = os.path.join(output_dir.get(), "zero_species.csv")
+        write_zero_species_csv(zero_species_path, retrieval_data)
 
     Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
 
