@@ -427,9 +427,10 @@ top_n_entry.pack(fill="x", pady=5)
 # Partial score band: extends past the full band on either side and
 # gets a reduced score. Outside both bands scores 0. Different markers
 # (e.g. a full ITS region vs. a short barcode) want different ranges,
-# so these are adjustable rather than hardcoded.
+# so these are adjustable rather than hardcoded, with optional per-marker
+# overrides on top of the default below.
 
-ctk.CTkLabel(settings_scroll, text="Full score length band (bp)").pack(
+ctk.CTkLabel(settings_scroll, text="Default full score length band (bp)").pack(
     anchor="w", pady=(10, 0))
 
 length_full_frame = ctk.CTkFrame(settings_scroll, fg_color="transparent")
@@ -443,7 +444,7 @@ length_full_max_entry = ctk.CTkEntry(length_full_frame, placeholder_text="max")
 length_full_max_entry.insert(0, "1200")
 length_full_max_entry.pack(side="left", fill="x", expand=True)
 
-ctk.CTkLabel(settings_scroll, text="Partial score length band (bp)").pack(
+ctk.CTkLabel(settings_scroll, text="Default partial score length band (bp)").pack(
     anchor="w")
 
 length_partial_frame = ctk.CTkFrame(settings_scroll, fg_color="transparent")
@@ -458,6 +459,52 @@ length_partial_max_entry = ctk.CTkEntry(
     length_partial_frame, placeholder_text="max")
 length_partial_max_entry.insert(0, "2000")
 length_partial_max_entry.pack(side="left", fill="x", expand=True)
+
+ctk.CTkLabel(settings_scroll, text="Per-marker overrides (optional)").pack(
+    anchor="w", pady=(10, 0))
+ctk.CTkLabel(
+    settings_scroll,
+    text="One per line: MARKER full_min-full_max partial_min-partial_max\n"
+         "e.g.  ITS 500-1800 400-2200",
+    justify="left",
+    text_color="gray",
+    font=("Arial", 11)
+).pack(anchor="w")
+
+marker_bands_textbox = ctk.CTkTextbox(settings_scroll, height=90)
+marker_bands_textbox.pack(fill="x", pady=5)
+
+
+def parse_marker_length_bands(text):
+    overrides = {}
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        parts = line.split()
+        if len(parts) != 3:
+            log(f"Skipping malformed length band line: {line!r}")
+            continue
+
+        marker, full_range, partial_range = parts
+
+        try:
+            full_min, full_max = (int(x) for x in full_range.split("-"))
+            partial_min, partial_max = (int(x) for x in partial_range.split("-"))
+        except ValueError:
+            log(f"Skipping malformed length band line: {line!r}")
+            continue
+
+        overrides[marker.lower()] = {
+            "full_min": full_min,
+            "full_max": full_max,
+            "partial_min": partial_min,
+            "partial_max": partial_max,
+        }
+
+    return overrides
 
 
 batch_size_label = ctk.CTkLabel(
@@ -634,12 +681,18 @@ def run_search():
         "bad_title_penalty": bad_penalty_s.get(),
     }
 
-    length_bands = {
+    default_length_bands = {
         "full_min": length_full_min,
         "full_max": length_full_max,
         "partial_min": length_partial_min,
         "partial_max": length_partial_max,
     }
+
+    marker_length_bands = parse_marker_length_bands(
+        marker_bands_textbox.get("1.0", "end"))
+
+    def length_bands_for(marker):
+        return marker_length_bands.get(marker.lower(), default_length_bands)
 
     rate_limiter = RateLimiter(float(sleep_entry.get()))
 
@@ -709,7 +762,7 @@ def run_search():
             future_to_job = {
                 executor.submit(
                     search_and_fetch_ncbi, species, marker, rate_limiter, w, bad_words,
-                    max_candidates, top_n, log, length_bands
+                    max_candidates, top_n, log, length_bands_for(marker)
                 ): (species, marker)
                 for species, marker in all_jobs
             }
@@ -755,7 +808,8 @@ def run_search():
                     try:
                         records = search_and_fetch_bold(
                             species, marker, retry_rate_limiter, w, bad_words, cache,
-                            max_candidates, top_n, log=log, length_bands=length_bands
+                            max_candidates, top_n, log=log,
+                            length_bands=length_bands_for(marker)
                         )
                     except BoldBlockedError as e:
                         log(e)
@@ -805,7 +859,8 @@ def run_search():
                     try:
                         records = search_and_fetch_bold(
                             species, marker, rate_limiter, w, bad_words, cache,
-                            max_candidates, top_n, log=log, length_bands=length_bands
+                            max_candidates, top_n, log=log,
+                            length_bands=length_bands_for(marker)
                         )
                     except BoldBlockedError as e:
                         log(e)
@@ -857,7 +912,7 @@ def run_search():
                     future_to_job = {
                         executor.submit(
                             search_and_fetch_ncbi, species, marker, retry_rate_limiter, w,
-                            bad_words, max_candidates, top_n, log, length_bands
+                            bad_words, max_candidates, top_n, log, length_bands_for(marker)
                         ): (species, marker)
                         for species, marker in retry_jobs
                     }
@@ -928,7 +983,7 @@ def run_search():
                 future_to_job = {
                     executor.submit(
                         search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w,
-                        bad_words, max_candidates, top_n, log, length_bands
+                        bad_words, max_candidates, top_n, log, length_bands_for(marker)
                     ): (species, marker)
                     for species, marker in batch_jobs
                 }
@@ -962,7 +1017,8 @@ def run_search():
                     try:
                         records = search_and_fetch_bold(
                             species, marker, bold_rate_limiter, w, bad_words, cache,
-                            max_candidates, top_n, log=log, length_bands=length_bands
+                            max_candidates, top_n, log=log,
+                            length_bands=length_bands_for(marker)
                         )
                     except BoldBlockedError as e:
                         log(e)
