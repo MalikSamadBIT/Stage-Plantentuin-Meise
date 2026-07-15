@@ -10,7 +10,15 @@ Entrez.api_key = "a9543111711b0671e59f806f680529ff4607"
 
 # NCBI SCORING (Biopython GenBank record)-----------------------------------------------
 
-def score_record(record, w, bad_words):
+DEFAULT_LENGTH_BANDS = {
+    "full_min": 300,
+    "full_max": 1200,
+    "partial_min": 200,
+    "partial_max": 2000,
+}
+
+
+def score_record(record, w, bad_words, length_bands=None):
 
     raw = 0
 
@@ -21,9 +29,15 @@ def score_record(record, w, bad_words):
 
     length = len(record.seq)
 
-    if 300 <= length <= 1200:
+    bands = length_bands or DEFAULT_LENGTH_BANDS
+    full_min = bands.get("full_min", 300)
+    full_max = bands.get("full_max", 1200)
+    partial_min = bands.get("partial_min", 200)
+    partial_max = bands.get("partial_max", 2000)
+
+    if full_min <= length <= full_max:
         length_score = 30
-    elif 200 <= length < 300 or 1200 < length <= 2000:
+    elif partial_min <= length < full_min or full_max < length <= partial_max:
         length_score = 15
     else:
         length_score = 0
@@ -92,7 +106,7 @@ def build_ncbi_result(gb, score):
 # SEARCH + SCORE + FETCH FROM NCBI------------------------------------
 
 def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words,
-                          max_candidates=10, top_n=1, log=print):
+                          max_candidates=10, top_n=1, log=print, length_bands=None):
 
     try:
         query = f'"{species}"[Organism] AND {marker}'
@@ -122,7 +136,7 @@ def search_and_fetch_ncbi(species, marker, rate_limiter, w, bad_words,
                 gb = SeqIO.read(handle, "genbank")
                 handle.close()
 
-                sc = score_record(gb, w, bad_words)
+                sc = score_record(gb, w, bad_words, length_bands)
                 scored.append((sc, gb))
 
             except Exception as e:

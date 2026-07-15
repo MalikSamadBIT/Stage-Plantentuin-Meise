@@ -66,7 +66,15 @@ def marker_matches(record_marker, wanted_marker):
 
 # BOLD SCORING (plain dict record)-----------------------------------------------
 
-def score_bold_record(record, w, bad_words):
+DEFAULT_LENGTH_BANDS = {
+    "full_min": 300,
+    "full_max": 1200,
+    "partial_min": 200,
+    "partial_max": 2000,
+}
+
+
+def score_bold_record(record, w, bad_words, length_bands=None):
 
     raw = 0
 
@@ -81,9 +89,15 @@ def score_bold_record(record, w, bad_words):
 
     length = record.get("nuc_basecount") or 0
 
-    if 300 <= length <= 1200:
+    bands = length_bands or DEFAULT_LENGTH_BANDS
+    full_min = bands.get("full_min", 300)
+    full_max = bands.get("full_max", 1200)
+    partial_min = bands.get("partial_min", 200)
+    partial_max = bands.get("partial_max", 2000)
+
+    if full_min <= length <= full_max:
         length_score = 30
-    elif 200 <= length < 300 or 1200 < length <= 2000:
+    elif partial_min <= length < full_min or full_max < length <= partial_max:
         length_score = 15
     else:
         length_score = 0
@@ -203,7 +217,7 @@ def build_bold_result(record, score):
 # SEARCH + SCORE + FETCH FROM BOLD------------------------------------
 
 def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache,
-                          max_candidates=10, top_n=1, log=print):
+                          max_candidates=10, top_n=1, log=print, length_bands=None):
 
     try:
         if species not in cache:
@@ -217,7 +231,7 @@ def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache,
         if not records:
             return []
 
-        scored = [(score_bold_record(r, w, bad_words), r) for r in records]
+        scored = [(score_bold_record(r, w, bad_words, length_bands), r) for r in records]
         scored.sort(key=lambda pair: pair[0], reverse=True)
 
         return [build_bold_result(r, sc) for sc, r in scored[:top_n]]

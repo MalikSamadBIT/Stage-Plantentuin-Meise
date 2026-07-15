@@ -421,6 +421,45 @@ top_n_entry = ctk.CTkEntry(settings_scroll)
 top_n_entry.insert(0, "1")
 top_n_entry.pack(fill="x", pady=5)
 
+
+# LENGTH BANDS (bp)------------------------------------------------------
+# Full score band: sequence length gets the full length score.
+# Partial score band: extends past the full band on either side and
+# gets a reduced score. Outside both bands scores 0. Different markers
+# (e.g. a full ITS region vs. a short barcode) want different ranges,
+# so these are adjustable rather than hardcoded.
+
+ctk.CTkLabel(settings_scroll, text="Full score length band (bp)").pack(
+    anchor="w", pady=(10, 0))
+
+length_full_frame = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+length_full_frame.pack(fill="x", pady=5)
+
+length_full_min_entry = ctk.CTkEntry(length_full_frame, placeholder_text="min")
+length_full_min_entry.insert(0, "300")
+length_full_min_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+length_full_max_entry = ctk.CTkEntry(length_full_frame, placeholder_text="max")
+length_full_max_entry.insert(0, "1200")
+length_full_max_entry.pack(side="left", fill="x", expand=True)
+
+ctk.CTkLabel(settings_scroll, text="Partial score length band (bp)").pack(
+    anchor="w")
+
+length_partial_frame = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+length_partial_frame.pack(fill="x", pady=5)
+
+length_partial_min_entry = ctk.CTkEntry(
+    length_partial_frame, placeholder_text="min")
+length_partial_min_entry.insert(0, "200")
+length_partial_min_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+length_partial_max_entry = ctk.CTkEntry(
+    length_partial_frame, placeholder_text="max")
+length_partial_max_entry.insert(0, "2000")
+length_partial_max_entry.pack(side="left", fill="x", expand=True)
+
+
 batch_size_label = ctk.CTkLabel(
     settings_scroll, text="Species per batch (BOLD searches)")
 batch_size_entry = ctk.CTkEntry(settings_scroll)
@@ -566,13 +605,40 @@ def run_search():
     bad_words += [w.strip() for w in extra_bad.get().split(",") if w.strip()]
     bad_words = [w.lower() for w in bad_words if w]
 
+    try:
+        length_full_min = int(length_full_min_entry.get())
+    except ValueError:
+        length_full_min = 300
+
+    try:
+        length_full_max = int(length_full_max_entry.get())
+    except ValueError:
+        length_full_max = 1200
+
+    try:
+        length_partial_min = int(length_partial_min_entry.get())
+    except ValueError:
+        length_partial_min = 200
+
+    try:
+        length_partial_max = int(length_partial_max_entry.get())
+    except ValueError:
+        length_partial_max = 2000
+
     w = {
         "belgium": belgium_s.get(),
         "neighbor": neighbor_s.get(),
         "europe": europe_s.get(),
         "unknown": 0,
         "length_bonus": length_s.get(),
-        "bad_title_penalty": bad_penalty_s.get()
+        "bad_title_penalty": bad_penalty_s.get(),
+    }
+
+    length_bands = {
+        "full_min": length_full_min,
+        "full_max": length_full_max,
+        "partial_min": length_partial_min,
+        "partial_max": length_partial_max,
     }
 
     rate_limiter = RateLimiter(float(sleep_entry.get()))
@@ -643,7 +709,7 @@ def run_search():
             future_to_job = {
                 executor.submit(
                     search_and_fetch_ncbi, species, marker, rate_limiter, w, bad_words,
-                    max_candidates, top_n, log
+                    max_candidates, top_n, log, length_bands
                 ): (species, marker)
                 for species, marker in all_jobs
             }
@@ -689,7 +755,7 @@ def run_search():
                     try:
                         records = search_and_fetch_bold(
                             species, marker, retry_rate_limiter, w, bad_words, cache,
-                            max_candidates, top_n, log=log
+                            max_candidates, top_n, log=log, length_bands=length_bands
                         )
                     except BoldBlockedError as e:
                         log(e)
@@ -739,7 +805,7 @@ def run_search():
                     try:
                         records = search_and_fetch_bold(
                             species, marker, rate_limiter, w, bad_words, cache,
-                            max_candidates, top_n, log=log
+                            max_candidates, top_n, log=log, length_bands=length_bands
                         )
                     except BoldBlockedError as e:
                         log(e)
@@ -791,7 +857,7 @@ def run_search():
                     future_to_job = {
                         executor.submit(
                             search_and_fetch_ncbi, species, marker, retry_rate_limiter, w,
-                            bad_words, max_candidates, top_n, log
+                            bad_words, max_candidates, top_n, log, length_bands
                         ): (species, marker)
                         for species, marker in retry_jobs
                     }
@@ -862,7 +928,7 @@ def run_search():
                 future_to_job = {
                     executor.submit(
                         search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w,
-                        bad_words, max_candidates, top_n, log
+                        bad_words, max_candidates, top_n, log, length_bands
                     ): (species, marker)
                     for species, marker in batch_jobs
                 }
@@ -896,7 +962,7 @@ def run_search():
                     try:
                         records = search_and_fetch_bold(
                             species, marker, bold_rate_limiter, w, bad_words, cache,
-                            max_candidates, top_n, log=log
+                            max_candidates, top_n, log=log, length_bands=length_bands
                         )
                     except BoldBlockedError as e:
                         log(e)
