@@ -15,7 +15,7 @@ def run_MSA(input_file, output_dir):
                     "-output", aligned_file], check=True)
 
     mv = MsaViz(aligned_file, color_scheme="Clustal",
-                show_grid=True, show_count=True, show_consensus=True)
+                show_grid=grid.get(), show_count=count.get(), show_consensus=consencus.get())
     report_path = os.path.join(output_dir, "msa_report.png")
     mv.savefig(report_path)
 
@@ -109,6 +109,34 @@ def run_and_show():
     show_results(report_path)
     tabs.set("MSA Results")
 
+
+grid = customtkinter.BooleanVar(value=True)
+count = customtkinter.BooleanVar(value=True)
+consencus = customtkinter.BooleanVar(value=True)
+
+grid_checkbox = customtkinter.CTkCheckBox(
+    MSA_run,
+    text="Show a grid on the MSA results",
+    variable=grid,
+    command=run_MSA
+)
+grid_checkbox.pack(anchor="w", pady=2)
+
+count_checkbox = customtkinter.CTkCheckBox(
+    MSA_run,
+    text="Show the count on the MSA results",
+    variable=count,
+    command=run_MSA
+)
+count_checkbox.pack(anchor="w", pady=2)
+
+consencus_checkbox = customtkinter.CTkCheckBox(
+    MSA_run,
+    text="Show the consencus on the MSA results",
+    variable=consencus,
+    command=run_MSA
+)
+consencus_checkbox.pack(anchor="w", pady=2)
 
 customtkinter.CTkButton(MSA_run, text="Run MSA",
                         command=run_and_show).pack(fill="x", pady=5)
