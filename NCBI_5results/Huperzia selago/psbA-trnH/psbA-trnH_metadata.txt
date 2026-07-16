@@ -1,0 +1,82 @@
+Huperzia selago - psbA-trnH
+===========================
+Species         : Huperzia selago
+Marker          : psbA-trnH
+Source          : NCBI
+Accession       : MW817416.1
+Organism        : Huperzia selago
+Title           : Huperzia selago isolate 175 psbA-trnH intergenic spacer region, partial sequence; chloroplast
+Length          : 303
+Geo location    : Canada: Labrador
+Lat/Lon         : -
+Collection date : -
+Voucher         : E.Oberndorfer s.n. (DUKE)
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - psbA-trnH
+===========================
+Species         : Huperzia selago
+Marker          : psbA-trnH
+Source          : NCBI
+Accession       : MW817415.1
+Organism        : Huperzia selago
+Title           : Huperzia selago isolate 174 psbA-trnH intergenic spacer region, partial sequence; chloroplast
+Length          : 303
+Geo location    : USA: Alaska
+Lat/Lon         : -
+Collection date : -
+Voucher         : J.Metzgar & E.Fraker 201 (DUKE)
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - psbA-trnH
+===========================
+Species         : Huperzia selago
+Marker          : psbA-trnH
+Source          : NCBI
+Accession       : MW817414.1
+Organism        : Huperzia selago
+Title           : Huperzia selago isolate 173 psbA-trnH intergenic spacer region, partial sequence; chloroplast
+Length          : 303
+Geo location    : Norway
+Lat/Lon         : -
+Collection date : -
+Voucher         : V.Reeb 8-VIII-02/2 (DUKE)
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - psbA-trnH
+===========================
+Species         : Huperzia selago
+Marker          : psbA-trnH
+Source          : NCBI
+Accession       : MH646728.1
+Organism        : Huperzia selago
+Title           : UNVERIFIED: Huperzia selago isolate HS28 PsbA-like gene and psbA-trnH intergenic spacer, partial sequence; chloroplast
+Length          : 357
+Geo location    : Norway
+Lat/Lon         : -
+Collection date : 04-Sep-2015
+Voucher         : VA21605
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - psbA-trnH
+===========================
+Species         : Huperzia selago
+Marker          : psbA-trnH
+Source          : NCBI
+Accession       : MH646727.1
+Organism        : Huperzia selago
+Title           : UNVERIFIED: Huperzia selago isolate HS27 PsbA-like gene and psbA-trnH intergenic spacer, partial sequence; chloroplast
+Length          : 339
+Geo location    : Sweden
+Lat/Lon         : -
+Collection date : 08-Sep-2015
+Voucher         : VA21604
+Score           : 62.0

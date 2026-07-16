@@ -1,0 +1,82 @@
+Huperzia selago - rbcL
+======================
+Species         : Huperzia selago
+Marker          : rbcL
+Source          : NCBI
+Accession       : PZ385908.1
+Organism        : Huperzia selago
+Title           : Huperzia selago voucher EDNA21-0061142 ribulose-1,5-bisphosphate carboxylase/oxygenase large subunit (rbcL) gene, partial cds; chloroplast
+Length          : 607
+Geo location    : United Kingdom: Scotland, Glenfinnan, Fraoch Bheinn
+Lat/Lon         : 56.893 N 5.464 W
+Collection date : 22-Jun-2021
+Voucher         : EDNA21-0061142
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - rbcL
+======================
+Species         : Huperzia selago
+Marker          : rbcL
+Source          : NCBI
+Accession       : MZ359286.1
+Organism        : Huperzia selago
+Title           : Huperzia selago ribulose-1,5-bisphosphate carboxylase/oxygenase large subunit (rbcL) gene, partial cds; chloroplast
+Length          : 552
+Geo location    : Sweden: Latnjavagge
+Lat/Lon         : 68.35 N 18.49 E
+Collection date : -
+Voucher         : -
+Score           : 62.0
+
+----------------------------------------
+
+Huperzia selago - rbcL
+======================
+Species         : Huperzia selago
+Marker          : rbcL
+Source          : NCBI
+Accession       : MK525986.1
+Organism        : Huperzia selago
+Title           : Huperzia selago ribulose-1,5-bisphosphate carboxylase/oxygenase large subunit (rbcL) gene, partial cds; chloroplast
+Length          : 549
+Geo location    : -
+Lat/Lon         : -
+Collection date : -
+Voucher         : v0000114WIS
+Score           : 60.0
+
+----------------------------------------
+
+Huperzia selago - rbcL
+======================
+Species         : Huperzia selago
+Marker          : rbcL
+Source          : NCBI
+Accession       : MW801526.1
+Organism        : Huperzia selago
+Title           : Huperzia selago isolate 174 ribulose-1,5-bisphosphate carboxylase/oxygenase large subunit (rbcL) gene, partial cds; chloroplast
+Length          : 1248
+Geo location    : Canada: Labrador
+Lat/Lon         : -
+Collection date : -
+Voucher         : E.Oberndorfer s.n. (DUKE)
+Score           : 47.0
+
+----------------------------------------
+
+Huperzia selago - rbcL
+======================
+Species         : Huperzia selago
+Marker          : rbcL
+Source          : NCBI
+Accession       : MW801525.1
+Organism        : Huperzia selago
+Title           : Huperzia selago isolate 173 ribulose-1,5-bisphosphate carboxylase/oxygenase large subunit (rbcL) gene, partial cds; chloroplast
+Length          : 1248
+Geo location    : USA: Alaska
+Lat/Lon         : -
+Collection date : -
+Voucher         : J.Metzgar & E.Fraker 201 (DUKE)
+Score           : 47.0

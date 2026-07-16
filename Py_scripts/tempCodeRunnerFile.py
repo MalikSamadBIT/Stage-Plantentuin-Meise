@@ -1,2 +1,2 @@
 
-                   "matK_count",  "trnL_count",  "psbA-trnH_count"]
+"matK_count",  "trnL_count",  "psbA-trnH_count"]
