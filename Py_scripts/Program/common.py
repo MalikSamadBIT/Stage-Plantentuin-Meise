@@ -1,5 +1,7 @@
 import time
 import threading
+import os
+import json
 
 
 # RATE LIMITER-----------------------------------------------
@@ -56,3 +58,29 @@ def detect_country_group(location: str):
         return "europe"
 
     return "unknown"
+
+
+# PERSISTED SETTINGS-----------------------------------------
+# Stored under the user's profile (not next to the script) so settings
+# survive moving/reinstalling the program folder. Plain text - fine for
+# an NCBI API key (it only raises a rate limit, it isn't a login
+# credential), but don't put anything more sensitive in here.
+
+CONFIG_DIR = os.path.join(
+    os.getenv("APPDATA") or os.path.expanduser("~"), "NCBI_BOLD_Pipeline"
+)
+CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+
+
+def load_config():
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_config(config):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)

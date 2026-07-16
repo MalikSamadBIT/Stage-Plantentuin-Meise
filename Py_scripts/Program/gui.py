@@ -7,7 +7,7 @@ import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from common import RateLimiter
+from common import RateLimiter, load_config, save_config
 from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from bold_client import BoldBlockedError, search_and_fetch_bold
 from output import (
@@ -446,6 +446,10 @@ ctk.CTkLabel(settings_scroll, text="NCBI API key (optional - raises the rate lim
 ncbi_api_key_entry = ctk.CTkEntry(
     settings_scroll, placeholder_text="API key", show="*")
 ncbi_api_key_entry.pack(fill="x", pady=5)
+
+_saved_config = load_config()
+ncbi_email_entry.insert(0, _saved_config.get("ncbi_email", ""))
+ncbi_api_key_entry.insert(0, _saved_config.get("ncbi_api_key", ""))
 
 
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
@@ -1250,6 +1254,11 @@ def update_status(text):
 
 
 def on_closing():
+    save_config({
+        "ncbi_email": ncbi_email_entry.get().strip(),
+        "ncbi_api_key": ncbi_api_key_entry.get().strip(),
+    })
+
     # ThreadPoolExecutor workers spawned by run_search() are non-daemon,
     # so a plain exit would hang until any in-flight NCBI/BOLD calls
     # finish. Force-kill the process instead.
