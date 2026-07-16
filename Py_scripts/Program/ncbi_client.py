@@ -3,9 +3,14 @@ from Bio import Entrez, SeqIO
 from common import detect_country_group
 
 # NCBI SETTINGS-------------------------------------------
+# Entrez.email/api_key are per-user - NCBI requires each user to identify
+# themselves with their own email, so these are set at runtime from the
+# Settings tab (see configure_entrez) instead of being hardcoded here.
 
-Entrez.email = "samadmalikg@gmail.com"
-Entrez.api_key = "a9543111711b0671e59f806f680529ff4607"
+
+def configure_entrez(email, api_key=None):
+    Entrez.email = email
+    Entrez.api_key = api_key or None
 
 
 # NCBI SCORING (Biopython GenBank record)-----------------------------------------------

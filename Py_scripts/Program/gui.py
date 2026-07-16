@@ -8,7 +8,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from common import RateLimiter
-from ncbi_client import search_and_fetch_ncbi
+from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from bold_client import BoldBlockedError, search_and_fetch_bold
 from output import (
     write_results, write_no_matches_table, build_summary_dataframe,
@@ -396,6 +396,27 @@ zero_species_checkbox.pack(anchor="w", pady=2)
 # lives in its own tab (Settings) instead of the Fetch FASTA tab, so more
 # settings can be added later without further crowding the search form.
 
+# NCBI CREDENTIALS-----------------------------------------------------------------
+# NCBI requires each user to identify themselves with their own email
+# (and recommends an API key for the higher 10 req/s rate limit), so
+# these are never hardcoded/shared - every run uses whatever is entered
+# here.
+
+ctk.CTkLabel(settings_scroll, text="🔑 NCBI CREDENTIALS", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(5, 5))
+
+ctk.CTkLabel(settings_scroll, text="NCBI email (required)").pack(anchor="w")
+ncbi_email_entry = ctk.CTkEntry(
+    settings_scroll, placeholder_text="you@example.com")
+ncbi_email_entry.pack(fill="x", pady=5)
+
+ctk.CTkLabel(settings_scroll, text="NCBI API key (optional - raises the rate limit "
+                                    "from 3 to 10 requests/s)").pack(anchor="w")
+ncbi_api_key_entry = ctk.CTkEntry(
+    settings_scroll, placeholder_text="API key", show="*")
+ncbi_api_key_entry.pack(fill="x", pady=5)
+
+
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
 
@@ -710,6 +731,23 @@ def run_search():
         top_n = 1
 
     source = source_var.get()
+
+    # NCBI requires each user to identify themselves with their own email -
+    # only enforced when this run will actually touch NCBI (a plain BOLD
+    # run that isn't retrying no-matches through NCBI never needs it)
+    needs_ncbi = source in ("NCBI", "NCBI + BOLD") or (
+        source == "BOLD" and retry_ncbi_var.get())
+
+    ncbi_email = ncbi_email_entry.get().strip()
+    ncbi_api_key = ncbi_api_key_entry.get().strip()
+
+    if needs_ncbi and not ncbi_email:
+        update_status("Enter your NCBI email in the Settings tab first!")
+        Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
+        return
+
+    if needs_ncbi:
+        configure_entrez(ncbi_email, ncbi_api_key)
 
     total_jobs = len(all_jobs)
 
