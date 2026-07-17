@@ -41,6 +41,7 @@ def build_msa_tab(parent, root=None):
 
     MSA_run = sub_tabs.add("Run MSA")
     MSA_results = sub_tabs.add("MSA Results")
+    MSA_score = sub_tabs.add("MSA Score")
 
     file_path = ctk.StringVar()
     output_dir = ctk.StringVar()
