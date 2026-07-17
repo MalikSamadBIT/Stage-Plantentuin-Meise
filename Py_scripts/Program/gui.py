@@ -579,7 +579,7 @@ def parse_marker_length_bands(text):
 batch_size_label = ctk.CTkLabel(
     settings_scroll, text="Species per batch (BOLD searches)")
 batch_size_entry = ctk.CTkEntry(settings_scroll)
-batch_size_entry.insert(0, "20")
+batch_size_entry.insert(0, "10")
 
 batch_pause_label = ctk.CTkLabel(
     settings_scroll, text="Pause between batches, s (BOLD searches)")
