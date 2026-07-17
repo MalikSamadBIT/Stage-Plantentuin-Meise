@@ -35,6 +35,26 @@ def run_msa(input_file, output_dir, show_grid, show_count, show_consensus):
     return report_path, aligned_file
 
 
+def _max_possible_sum_of_pairs(msa, substitution_matrix):
+    # Best case for a column: every pair of sequences shares whichever
+    # character scores highest against itself in the matrix (e.g. W-W in
+    # Blosum62/PAM250) - that's the ceiling a real column's score is
+    # compared against.
+    best_self_score = max(
+        value for (a, b), value in substitution_matrix.get_distance_matrix().items()
+        if a == b
+    )
+    num_sequences = msa.number_of_sequences
+    num_pairs_per_column = num_sequences * (num_sequences - 1) / 2
+
+    return len(msa) * num_pairs_per_column * best_self_score
+
+
+def _percent_of_max_sum_of_pairs(msa, substitution_matrix, sp_score):
+    max_possible = _max_possible_sum_of_pairs(msa, substitution_matrix)
+    return (sp_score / max_possible) * 100 if max_possible else 0.0
+
+
 def compute_msa_scores(fasta_path):
     # fasta_path must already be aligned (equal-length sequences) - i.e.
     # the *_aligned.fasta MUSCLE produces, not the raw input FASTA
@@ -44,15 +64,25 @@ def compute_msa_scores(fasta_path):
 
     msa = MSA(aligned_sequences, sequences_id)
 
+    blosum62 = Blosum62()
+    pam250 = PAM250()
+
+    sp_blosum62_score = SumOfPairs(msa, blosum62).compute()
+    sp_pam250_score = SumOfPairs(msa, pam250).compute()
+
     return {
         "Percentage of non-gaps": PercentageOfNonGaps(msa).compute(),
         "Percentage of totally conserved columns":
             PercentageOfTotallyConservedColumns(msa).compute(),
         "Entropy": Entropy(msa).compute(),
-        "Sum of Pairs (Blosum62)": SumOfPairs(msa, Blosum62()).compute(),
-        "Sum of Pairs (PAM250)": SumOfPairs(msa, PAM250()).compute(),
-        "Star (Blosum62)": Star(msa, Blosum62()).compute(),
-        "Star (PAM250)": Star(msa, PAM250()).compute(),
+        "Sum of Pairs (Blosum62)": sp_blosum62_score,
+        "Sum of Pairs (Blosum62) - % of max possible":
+            _percent_of_max_sum_of_pairs(msa, blosum62, sp_blosum62_score),
+        "Sum of Pairs (PAM250)": sp_pam250_score,
+        "Sum of Pairs (PAM250) - % of max possible":
+            _percent_of_max_sum_of_pairs(msa, pam250, sp_pam250_score),
+        "Star (Blosum62)": Star(msa, blosum62).compute(),
+        "Star (PAM250)": Star(msa, pam250).compute(),
     }
 
 
@@ -176,7 +206,12 @@ def build_msa_tab(parent, root=None):
         score_results_box.configure(state="normal")
         score_results_box.delete("1.0", "end")
         for label, value in scores.items():
-            formatted = f"{value:.4f}" if isinstance(value, float) else str(value)
+            if "% of max possible" in label:
+                formatted = f"{value:.2f}%"
+            elif isinstance(value, float):
+                formatted = f"{value:.4f}"
+            else:
+                formatted = str(value)
             score_results_box.insert("end", f"{label}: {formatted}\n")
         score_results_box.configure(state="disabled")
 
