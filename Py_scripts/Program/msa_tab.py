@@ -167,7 +167,8 @@ def build_msa_tab(parent, root=None):
     score_button = ctk.CTkButton(MSA_score, text="Compute Scores")
     score_button.pack(fill="x", pady=5)
 
-    score_results_box = ctk.CTkTextbox(MSA_score, height=250)
+    score_results_box = ctk.CTkTextbox(
+        MSA_score, height=250, font=("Consolas", 16))
     score_results_box.pack(fill="both", expand=True, pady=(10, 0))
     score_results_box.configure(state="disabled")
 
