@@ -7,7 +7,7 @@ import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from common import RateLimiter, load_config, save_config
+from common import RateLimiter, load_config, save_config, strip_hybrid_marker
 from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from bold_client import BoldBlockedError, search_and_fetch_bold
 from output import (
@@ -455,6 +455,15 @@ ncbi_api_key_entry.insert(0, _saved_config.get("ncbi_api_key", ""))
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
 
+strip_hybrid_var = ctk.BooleanVar(value=False)
+
+ctk.CTkCheckBox(
+    settings_scroll,
+    text="Strip hybrid marker (×) from species names before searching, "
+         "e.g. \"Equisetum ×litorale\" -> \"Equisetum litorale\"",
+    variable=strip_hybrid_var
+).pack(anchor="w", pady=(0, 10))
+
 ctk.CTkLabel(settings_scroll, text="Min. interval between requests (s)").pack(
     anchor="w")
 sleep_entry = ctk.CTkEntry(settings_scroll)
@@ -686,7 +695,11 @@ def run_search():
             s.strip() for s in species_textbox.get("1.0", "end").split(",")
             if s.strip()
         ]
-        species_list = list(dict.fromkeys(species_list))
+
+        if strip_hybrid_var.get():
+            species_list = [strip_hybrid_marker(s) for s in species_list]
+
+        species_list = list(dict.fromkeys(s for s in species_list if s))
 
         if not species_list or not output_dir.get():
             update_status(
