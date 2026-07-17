@@ -55,35 +55,66 @@ def _percent_of_max_sum_of_pairs(msa, substitution_matrix, sp_score):
     return (sp_score / max_possible) * 100 if max_possible else 0.0
 
 
-def compute_msa_scores(fasta_path):
+# (option key, checkbox label) - order here is the order scores are shown in
+SCORE_OPTIONS = [
+    ("non_gaps", "Percentage of non-gaps"),
+    ("conserved_columns", "Percentage of totally conserved columns"),
+    ("entropy", "Entropy"),
+    ("sop_blosum62", "Sum of Pairs (Blosum62)"),
+    ("sop_pam250", "Sum of Pairs (PAM250)"),
+    ("star_blosum62", "Star (Blosum62)"),
+    ("star_pam250", "Star (PAM250)"),
+]
+
+
+def compute_msa_scores(fasta_path, selected=None):
     # fasta_path must already be aligned (equal-length sequences) - i.e.
     # the *_aligned.fasta MUSCLE produces, not the raw input FASTA
+    # selected: set of SCORE_OPTIONS keys to compute - None/omitted means
+    # compute everything, and skipping unselected ones also saves time on
+    # larger alignments (Sum of Pairs/Star are the slowest of the bunch)
+    if selected is None:
+        selected = {key for key, _ in SCORE_OPTIONS}
+
     sequences = read_fasta_file_as_list_of_pairs(fasta_path)
     aligned_sequences = [pair[1] for pair in sequences]
     sequences_id = [pair[0] for pair in sequences]
 
     msa = MSA(aligned_sequences, sequences_id)
 
-    blosum62 = Blosum62()
-    pam250 = PAM250()
+    scores = {}
 
-    sp_blosum62_score = SumOfPairs(msa, blosum62).compute()
-    sp_pam250_score = SumOfPairs(msa, pam250).compute()
+    if "non_gaps" in selected:
+        scores["Percentage of non-gaps"] = PercentageOfNonGaps(msa).compute()
 
-    return {
-        "Percentage of non-gaps": PercentageOfNonGaps(msa).compute(),
-        "Percentage of totally conserved columns":
-            PercentageOfTotallyConservedColumns(msa).compute(),
-        "Entropy": Entropy(msa).compute(),
-        "Sum of Pairs (Blosum62)": sp_blosum62_score,
-        "Sum of Pairs (Blosum62) - % of max possible":
-            _percent_of_max_sum_of_pairs(msa, blosum62, sp_blosum62_score),
-        "Sum of Pairs (PAM250)": sp_pam250_score,
-        "Sum of Pairs (PAM250) - % of max possible":
-            _percent_of_max_sum_of_pairs(msa, pam250, sp_pam250_score),
-        "Star (Blosum62)": Star(msa, blosum62).compute(),
-        "Star (PAM250)": Star(msa, pam250).compute(),
-    }
+    if "conserved_columns" in selected:
+        scores["Percentage of totally conserved columns"] = \
+            PercentageOfTotallyConservedColumns(msa).compute()
+
+    if "entropy" in selected:
+        scores["Entropy"] = Entropy(msa).compute()
+
+    if "sop_blosum62" in selected:
+        blosum62 = Blosum62()
+        sp_score = SumOfPairs(msa, blosum62).compute()
+        scores["Sum of Pairs (Blosum62)"] = sp_score
+        scores["Sum of Pairs (Blosum62) - % of max possible"] = \
+            _percent_of_max_sum_of_pairs(msa, blosum62, sp_score)
+
+    if "sop_pam250" in selected:
+        pam250 = PAM250()
+        sp_score = SumOfPairs(msa, pam250).compute()
+        scores["Sum of Pairs (PAM250)"] = sp_score
+        scores["Sum of Pairs (PAM250) - % of max possible"] = \
+            _percent_of_max_sum_of_pairs(msa, pam250, sp_score)
+
+    if "star_blosum62" in selected:
+        scores["Star (Blosum62)"] = Star(msa, Blosum62()).compute()
+
+    if "star_pam250" in selected:
+        scores["Star (PAM250)"] = Star(msa, PAM250()).compute()
+
+    return scores
 
 
 def build_msa_tab(parent, root=None):
@@ -191,6 +222,18 @@ def build_msa_tab(parent, root=None):
     ctk.CTkLabel(MSA_score, textvariable=score_file_path).pack(
         anchor="w", pady=(0, 10))
 
+    ctk.CTkLabel(MSA_score, text="Scores to compute", font=(
+        "Arial", 14, "bold")).pack(anchor="w", pady=(5, 2))
+
+    score_option_vars = {
+        key: ctk.BooleanVar(value=True) for key, _ in SCORE_OPTIONS
+    }
+
+    for key, label in SCORE_OPTIONS:
+        ctk.CTkCheckBox(
+            MSA_score, text=label, variable=score_option_vars[key]
+        ).pack(anchor="w", pady=1)
+
     score_status_label = ctk.CTkLabel(MSA_score, text="")
     score_status_label.pack(anchor="w", pady=(0, 5))
 
@@ -215,9 +258,9 @@ def build_msa_tab(parent, root=None):
             score_results_box.insert("end", f"{label}: {formatted}\n")
         score_results_box.configure(state="disabled")
 
-    def score_worker(fasta_path):
+    def score_worker(fasta_path, selected):
         try:
-            scores = compute_msa_scores(fasta_path)
+            scores = compute_msa_scores(fasta_path, selected)
         except Exception as e:
             parent.after(0, lambda: score_status_label.configure(
                 text=f"Scoring failed: {e}"))
@@ -237,12 +280,19 @@ def build_msa_tab(parent, root=None):
                 text="Select an aligned FASTA file first.")
             return
 
+        selected = {key for key, var in score_option_vars.items() if var.get()}
+
+        if not selected:
+            score_status_label.configure(
+                text="Select at least one score to compute.")
+            return
+
         score_status_label.configure(text="Computing scores...")
         score_button.configure(state="disabled")
 
         thread = threading.Thread(
             target=score_worker,
-            args=(score_file_path.get(),),
+            args=(score_file_path.get(), selected),
             daemon=True
         )
         thread.start()
