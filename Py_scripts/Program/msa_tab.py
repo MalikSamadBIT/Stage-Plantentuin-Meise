@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import threading
 import tkinter
 from tkinter import filedialog
@@ -14,7 +15,15 @@ from pymsa import (
 )
 from pymsa.util.fasta import read_fasta_file_as_list_of_pairs
 
-MUSCLE_EXE = r"B:\Stage\tools\muscle.exe"
+# When frozen by PyInstaller, sys._MEIPASS is the bundle root in both
+# onefile mode (a temp extraction dir) and onedir mode (the folder next to
+# the exe) - so bundling muscle.exe with `--add-binary "<path>;tools"` and
+# looking for it under "tools/" there covers both packaging modes. Running
+# from source keeps using the dev machine's actual install location.
+if getattr(sys, "frozen", False):
+    MUSCLE_EXE = os.path.join(sys._MEIPASS, "tools", "muscle.exe")
+else:
+    MUSCLE_EXE = r"B:\Stage\tools\muscle.exe"
 
 
 def merge_fasta_files(input_paths, output_path):
