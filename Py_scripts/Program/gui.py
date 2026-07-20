@@ -7,12 +7,13 @@ import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from common import RateLimiter
-from ncbi_client import search_and_fetch_ncbi
+from common import RateLimiter, load_config, save_config, strip_hybrid_marker
+from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from bold_client import BoldBlockedError, search_and_fetch_bold
 from output import (
     write_results, write_no_matches_table, build_summary_dataframe,
-    write_zero_species_csv, parse_no_matches_table
+    write_zero_species_csv, parse_no_matches_table,
+    merge_summary_dataframe, merge_matched_set
 )
 from retrieval_rate_tab import build_retrieval_rate_tab
 from msa_tab import build_msa_tab
@@ -20,7 +21,11 @@ from msa_tab import build_msa_tab
 df = None
 retrieval_data = None
 resume_jobs = None  # set by "Load no_matches.txt to resume"; overrides
-                     # the normal species/marker selection until cleared
+# the normal species/marker selection until cleared
+resume_baseline_summary = None  # that previous run's summary.csv, if found
+# alongside the loaded no_matches.txt - lets
+# a resumed run's outputs merge into the
+# full dataset instead of replacing it
 
 
 # GUI SETUP---------------------------------------
@@ -181,7 +186,7 @@ resume_status_label.pack(anchor="w", pady=(0, 5))
 
 
 def load_resume_file():
-    global resume_jobs
+    global resume_jobs, resume_baseline_summary
 
     path = filedialog.askopenfilename(
         title="Select a previous run's no_matches.txt",
@@ -208,16 +213,42 @@ def load_resume_file():
         return
 
     resume_jobs = pending
+
+    # a sibling summary.csv (from the same run) lets the resumed run's
+    # no_matches.txt/summary.csv get merged back into the full dataset
+    # instead of being replaced by just this batch's results
+    run_folder = os.path.dirname(path)
+    summary_path = os.path.join(run_folder, "summary.csv")
+
+    baseline_note = ""
+    if os.path.exists(summary_path):
+        try:
+            resume_baseline_summary = pd.read_csv(summary_path)
+        except Exception as e:
+            resume_baseline_summary = None
+            baseline_note = f" (couldn't read summary.csv alongside it: {e})"
+    else:
+        resume_baseline_summary = None
+        baseline_note = (
+            " (no summary.csv found alongside it - no_matches.txt/summary.csv "
+            "from this run will only reflect the resumed batch, not the full "
+            "dataset)"
+        )
+
+    if not output_dir.get():
+        output_dir.set(run_folder)
+
     resume_status_label.configure(
         text=f"Resuming {len(resume_jobs)} missing species/marker "
-             f"combination(s) from {os.path.basename(path)}.",
-        text_color="orange"
+        f"combination(s) from {os.path.basename(path)}.{baseline_note}",
+        text_color="orange" if not baseline_note else "red"
     )
 
 
 def clear_resume():
-    global resume_jobs
+    global resume_jobs, resume_baseline_summary
     resume_jobs = None
+    resume_baseline_summary = None
     resume_status_label.configure(
         text="Not resuming - using species/markers above.", text_color="gray"
     )
@@ -396,8 +427,42 @@ zero_species_checkbox.pack(anchor="w", pady=2)
 # lives in its own tab (Settings) instead of the Fetch FASTA tab, so more
 # settings can be added later without further crowding the search form.
 
+# NCBI CREDENTIALS-----------------------------------------------------------------
+# NCBI requires each user to identify themselves with their own email
+# (and recommends an API key for the higher 10 req/s rate limit), so
+# these are never hardcoded/shared - every run uses whatever is entered
+# here.
+
+ctk.CTkLabel(settings_scroll, text="🔑 NCBI CREDENTIALS", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(5, 5))
+
+ctk.CTkLabel(settings_scroll, text="NCBI email (required)").pack(anchor="w")
+ncbi_email_entry = ctk.CTkEntry(
+    settings_scroll, placeholder_text="you@example.com")
+ncbi_email_entry.pack(fill="x", pady=5)
+
+ctk.CTkLabel(settings_scroll, text="NCBI API key (optional - raises the rate limit "
+             "from 3 to 10 requests/s)").pack(anchor="w")
+ncbi_api_key_entry = ctk.CTkEntry(
+    settings_scroll, placeholder_text="API key", show="*")
+ncbi_api_key_entry.pack(fill="x", pady=5)
+
+_saved_config = load_config()
+ncbi_email_entry.insert(0, _saved_config.get("ncbi_email", ""))
+ncbi_api_key_entry.insert(0, _saved_config.get("ncbi_api_key", ""))
+
+
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
+
+strip_hybrid_var = ctk.BooleanVar(value=False)
+
+ctk.CTkCheckBox(
+    settings_scroll,
+    text="Strip hybrid marker (×) from species names before searching, "
+         "e.g. \"Equisetum ×litorale\" -> \"Equisetum litorale\"",
+    variable=strip_hybrid_var
+).pack(anchor="w", pady=(0, 10))
 
 ctk.CTkLabel(settings_scroll, text="Min. interval between requests (s)").pack(
     anchor="w")
@@ -495,7 +560,8 @@ def parse_marker_length_bands(text):
 
         try:
             full_min, full_max = (int(x) for x in full_range.split("-"))
-            partial_min, partial_max = (int(x) for x in partial_range.split("-"))
+            partial_min, partial_max = (int(x)
+                                        for x in partial_range.split("-"))
         except ValueError:
             log(f"Skipping malformed length band line: {line!r}")
             continue
@@ -513,7 +579,7 @@ def parse_marker_length_bands(text):
 batch_size_label = ctk.CTkLabel(
     settings_scroll, text="Species per batch (BOLD searches)")
 batch_size_entry = ctk.CTkEntry(settings_scroll)
-batch_size_entry.insert(0, "20")
+batch_size_entry.insert(0, "10")
 
 batch_pause_label = ctk.CTkLabel(
     settings_scroll, text="Pause between batches, s (BOLD searches)")
@@ -615,7 +681,8 @@ def run_search():
         # loaded no_matches.txt, bypassing the species textbox/CSV and
         # marker checkboxes entirely
         all_jobs = list(resume_jobs)
-        species_list = list(dict.fromkeys(species for species, marker in all_jobs))
+        species_list = list(dict.fromkeys(
+            species for species, marker in all_jobs))
         markers = list(dict.fromkeys(marker for species, marker in all_jobs))
 
         if not output_dir.get():
@@ -628,7 +695,11 @@ def run_search():
             s.strip() for s in species_textbox.get("1.0", "end").split(",")
             if s.strip()
         ]
-        species_list = list(dict.fromkeys(species_list))
+
+        if strip_hybrid_var.get():
+            species_list = [strip_hybrid_marker(s) for s in species_list]
+
+        species_list = list(dict.fromkeys(s for s in species_list if s))
 
         if not species_list or not output_dir.get():
             update_status(
@@ -637,7 +708,8 @@ def run_search():
             return
 
         markers = [m for m, v in marker_vars.items() if v.get()]
-        markers += [m.strip() for m in extra_markers.get().split(",") if m.strip()]
+        markers += [m.strip()
+                    for m in extra_markers.get().split(",") if m.strip()]
         markers = list(dict.fromkeys(markers))
 
         if not markers:
@@ -710,6 +782,23 @@ def run_search():
         top_n = 1
 
     source = source_var.get()
+
+    # NCBI requires each user to identify themselves with their own email -
+    # only enforced when this run will actually touch NCBI (a plain BOLD
+    # run that isn't retrying no-matches through NCBI never needs it)
+    needs_ncbi = source in ("NCBI", "NCBI + BOLD") or (
+        source == "BOLD" and retry_ncbi_var.get())
+
+    ncbi_email = ncbi_email_entry.get().strip()
+    ncbi_api_key = ncbi_api_key_entry.get().strip()
+
+    if needs_ncbi and not ncbi_email:
+        update_status("Enter your NCBI email in the Settings tab first!")
+        Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
+        return
+
+    if needs_ncbi:
+        configure_entrez(ncbi_email, ncbi_api_key)
 
     total_jobs = len(all_jobs)
 
@@ -915,7 +1004,8 @@ def run_search():
                     future_to_job = {
                         executor.submit(
                             search_and_fetch_ncbi, species, marker, retry_rate_limiter, w,
-                            bad_words, max_candidates, top_n, log, length_bands_for(marker)
+                            bad_words, max_candidates, top_n, log, length_bands_for(
+                                marker)
                         ): (species, marker)
                         for species, marker in retry_jobs
                     }
@@ -986,7 +1076,8 @@ def run_search():
                 future_to_job = {
                     executor.submit(
                         search_and_fetch_ncbi, species, marker, ncbi_rate_limiter, w,
-                        bad_words, max_candidates, top_n, log, length_bands_for(marker)
+                        bad_words, max_candidates, top_n, log, length_bands_for(
+                            marker)
                     ): (species, marker)
                     for species, marker in batch_jobs
                 }
@@ -1067,15 +1158,34 @@ def run_search():
         save_metadata_var.get()
     )
 
-    if save_no_matches_var.get():
+    # resuming only re-searches pairs that previously had zero matches, so
+    # species_list/markers here only cover that narrower batch - merge into
+    # the previous run's summary.csv (if one was found alongside the loaded
+    # no_matches.txt) instead of writing outputs that only reflect this
+    # batch and silently drop every species/marker that already succeeded
+    if resume_jobs is not None and resume_baseline_summary is not None:
+        retrieval_data = merge_summary_dataframe(
+            resume_baseline_summary, results)
+        matched_set = merge_matched_set(resume_baseline_summary, results)
+        full_species_list = list(retrieval_data["Species"])
+        full_markers = [
+            c[:-len("_count")] for c in retrieval_data.columns
+            if c.endswith("_count") and c not in
+            {"NCBI_count", "BOLD_count", "Total_count"}
+        ]
+    else:
         matched_set = {(species, marker) for species, marker, _, _ in results}
+        # built regardless of the "Save summary.csv" checkbox, so the
+        # Retrieval Rate tab always has something to display after a run
+        retrieval_data = build_summary_dataframe(
+            results, species_list, markers)
+        full_species_list = species_list
+        full_markers = markers
+
+    if save_no_matches_var.get():
         no_matches_path = os.path.join(output_dir.get(), "no_matches.txt")
         write_no_matches_table(
-            no_matches_path, species_list, markers, matched_set)
-
-    # built regardless of the "Save summary.csv" checkbox, so the
-    # Retrieval Rate tab always has something to display after a run
-    retrieval_data = build_summary_dataframe(results, species_list, markers)
+            no_matches_path, full_species_list, full_markers, matched_set)
 
     if save_summary_var.get():
         summary_path = os.path.join(output_dir.get(), "summary.csv")
@@ -1157,6 +1267,11 @@ def update_status(text):
 
 
 def on_closing():
+    save_config({
+        "ncbi_email": ncbi_email_entry.get().strip(),
+        "ncbi_api_key": ncbi_api_key_entry.get().strip(),
+    })
+
     # ThreadPoolExecutor workers spawned by run_search() are non-daemon,
     # so a plain exit would hang until any in-flight NCBI/BOLD calls
     # finish. Force-kill the process instead.

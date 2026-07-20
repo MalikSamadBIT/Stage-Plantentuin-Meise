@@ -131,6 +131,68 @@ def build_summary_dataframe(results, species_list, markers):
     return pd.DataFrame(rows, columns=columns)
 
 
+NON_MARKER_COUNT_COLUMNS = {"NCBI_count", "BOLD_count", "Total_count"}
+
+
+def merge_summary_dataframe(baseline_df, results):
+    # Resuming only re-searches (species, marker) pairs that had zero
+    # matches in the previous run (see parse_no_matches_table), so every
+    # count `results` contributes here is additive against the baseline -
+    # no existing non-zero cell is ever touched or overwritten.
+    df = baseline_df.set_index("Species")
+
+    marker_deltas = defaultdict(lambda: defaultdict(int))
+    source_deltas = defaultdict(lambda: defaultdict(int))
+
+    for species, marker, _, meta in results:
+        marker_deltas[species][marker] += 1
+        source = meta.get("source") or "Unknown"
+        source_deltas[species][source] += 1
+
+    for species, marker_counts in marker_deltas.items():
+        if species not in df.index:
+            df.loc[species] = 0
+
+        for marker, count in marker_counts.items():
+            col = f"{marker}_count"
+            if col not in df.columns:
+                df[col] = 0
+            df.loc[species, col] = count
+
+        df.loc[species, "Total_count"] += sum(marker_counts.values())
+
+        for source, count in source_deltas[species].items():
+            col = f"{source}_count"
+            if col in df.columns:
+                df.loc[species, col] += count
+
+    count_cols = [c for c in df.columns if c.endswith("_count")]
+    df[count_cols] = df[count_cols].fillna(0).astype(int)
+
+    return df.reset_index()
+
+
+def merge_matched_set(baseline_df, results):
+    # Reconstructs the full (species, marker) matched set - every pair
+    # with a non-zero count in the previous run's summary, unioned with
+    # whatever this resumed run just found.
+    marker_columns = [
+        c for c in baseline_df.columns
+        if c.endswith("_count") and c not in NON_MARKER_COUNT_COLUMNS
+    ]
+
+    matched = set()
+    for _, row in baseline_df.iterrows():
+        for col in marker_columns:
+            if row[col] > 0:
+                matched.add((row["Species"], col[:-len("_count")]))
+
+    for species, marker, _, _ in results:
+        matched.add((species, marker))
+
+    return matched
+
+
 def write_summary_csv(path, results, species_list, markers):
     df = build_summary_dataframe(results, species_list, markers)
     df.to_csv(path, index=False)
