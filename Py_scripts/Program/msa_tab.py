@@ -6,6 +6,7 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 from PIL import Image
+from Bio import SeqIO
 from pymsaviz import MsaViz
 from pymsa import (
     MSA, Entropy, PercentageOfNonGaps, PercentageOfTotallyConservedColumns,
@@ -14,6 +15,14 @@ from pymsa import (
 from pymsa.util.fasta import read_fasta_file_as_list_of_pairs
 
 MUSCLE_EXE = r"B:\Stage\tools\muscle.exe"
+
+
+def merge_fasta_files(input_paths, output_path):
+    records = []
+    for path in input_paths:
+        records.extend(SeqIO.parse(path, "fasta"))
+    SeqIO.write(records, output_path, "fasta")
+    return len(records)
 
 
 def run_msa(input_file, output_dir, show_grid, show_count, show_consensus):
@@ -126,6 +135,9 @@ def build_msa_tab(parent, root=None):
     sub_tabs = ctk.CTkTabview(parent)
     sub_tabs.pack(fill="both", expand=True)
 
+    # added first so it's also the tab shown by default when the MSA tab
+    # opens - merging is the natural first step before running an MSA
+    MSA_merge = sub_tabs.add("Merge FASTA")
     MSA_run = sub_tabs.add("Run MSA")
     MSA_results = sub_tabs.add("MSA Results")
     MSA_score = sub_tabs.add("MSA Score")
@@ -133,6 +145,8 @@ def build_msa_tab(parent, root=None):
     file_path = ctk.StringVar()
     output_dir = ctk.StringVar()
     score_file_path = ctk.StringVar()
+    merge_output_path = ctk.StringVar()
+    merge_input_paths = []
 
     def load():
         path = filedialog.askopenfilename(
@@ -144,6 +158,136 @@ def build_msa_tab(parent, root=None):
         path = filedialog.askdirectory(parent=root)
         if path:
             output_dir.set(path)
+
+    # MERGE FASTA----------------------------------------------------------------
+
+    ctk.CTkLabel(MSA_merge, text="📁 FASTA FILES TO MERGE", font=(
+        "Arial", 16, "bold")).pack(anchor="w", pady=(5, 2))
+
+    merge_button_row = ctk.CTkFrame(MSA_merge, fg_color="transparent")
+    merge_button_row.pack(fill="x", pady=(0, 5))
+
+    merge_file_list_frame = ctk.CTkScrollableFrame(MSA_merge, height=250)
+
+    def refresh_merge_file_list():
+        for widget in merge_file_list_frame.winfo_children():
+            widget.destroy()
+
+        if not merge_input_paths:
+            ctk.CTkLabel(
+                merge_file_list_frame, text="No files selected yet.",
+                text_color="gray"
+            ).pack(anchor="w", pady=5)
+            return
+
+        for path in merge_input_paths:
+            row = ctk.CTkFrame(merge_file_list_frame, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+
+            ctk.CTkLabel(row, text=os.path.basename(path), anchor="w").pack(
+                side="left", fill="x", expand=True)
+
+            ctk.CTkButton(
+                row, text="✕", width=28,
+                command=lambda p=path: remove_merge_file(p)
+            ).pack(side="right")
+
+    def add_merge_files():
+        paths = filedialog.askopenfilenames(
+            parent=root,
+            title="Select FASTA files to merge",
+            filetypes=[("FASTA", "*.fasta *.fa *.fna"), ("All files", "*.*")]
+        )
+        for path in paths:
+            if path not in merge_input_paths:
+                merge_input_paths.append(path)
+        refresh_merge_file_list()
+
+    def remove_merge_file(path):
+        merge_input_paths.remove(path)
+        refresh_merge_file_list()
+
+    def clear_merge_files():
+        merge_input_paths.clear()
+        refresh_merge_file_list()
+
+    ctk.CTkButton(
+        merge_button_row, text="Add FASTA Files...", command=add_merge_files
+    ).pack(side="left", padx=(0, 5))
+
+    ctk.CTkButton(
+        merge_button_row, text="Clear All", command=clear_merge_files, width=80
+    ).pack(side="left")
+
+    merge_file_list_frame.pack(fill="both", expand=True, pady=(0, 10))
+
+    ctk.CTkLabel(MSA_merge, text="💾 OUTPUT FILE", font=(
+        "Arial", 16, "bold")).pack(anchor="w", pady=(0, 2))
+
+    def choose_merge_output():
+        path = filedialog.asksaveasfilename(
+            parent=root,
+            title="Save merged FASTA as",
+            defaultextension=".fasta",
+            filetypes=[("FASTA", "*.fasta"), ("All files", "*.*")]
+        )
+        if path:
+            merge_output_path.set(path)
+
+    ctk.CTkButton(
+        MSA_merge, text="Choose Output File...", command=choose_merge_output
+    ).pack(fill="x", pady=5)
+
+    ctk.CTkLabel(
+        MSA_merge, textvariable=merge_output_path, text_color="gray"
+    ).pack(anchor="w", pady=(0, 10))
+
+    merge_status_label = ctk.CTkLabel(MSA_merge, text="")
+    merge_status_label.pack(anchor="w", pady=(0, 5))
+
+    merge_button = ctk.CTkButton(MSA_merge, text="▶ Merge")
+    merge_button.pack(fill="x", pady=(0, 10))
+
+    def merge_worker(input_paths, output_path):
+        try:
+            count = merge_fasta_files(input_paths, output_path)
+        except Exception as e:
+            parent.after(0, lambda: merge_status_label.configure(
+                text=f"Merge failed: {e}"))
+            parent.after(0, lambda: merge_button.configure(state="normal"))
+            return
+
+        def finish():
+            merge_status_label.configure(
+                text=f"Done - {count} sequences written to "
+                     f"{os.path.basename(output_path)}.")
+            merge_button.configure(state="normal")
+
+        parent.after(0, finish)
+
+    def start_merge():
+        if len(merge_input_paths) < 2:
+            merge_status_label.configure(
+                text="Select at least two FASTA files.")
+            return
+
+        if not merge_output_path.get():
+            merge_status_label.configure(text="Choose an output file first.")
+            return
+
+        merge_status_label.configure(text="Merging...")
+        merge_button.configure(state="disabled")
+
+        thread = threading.Thread(
+            target=merge_worker,
+            args=(list(merge_input_paths), merge_output_path.get()),
+            daemon=True
+        )
+        thread.start()
+
+    merge_button.configure(command=start_merge)
+
+    refresh_merge_file_list()
 
     # FILE SELECTION-------------------------------------------------------------
 
