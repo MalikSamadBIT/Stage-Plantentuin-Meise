@@ -48,6 +48,7 @@ Settings = tabs.add("Settings")
 Retrieval_Rate = tabs.add("Retrieval Rate")
 MSA = tabs.add("MSA")
 Database_tab = tabs.add("Database")
+BLAST = tabs.add("BLAST")
 Terminal = tabs.add("Terminal")
 
 settings_scroll = ctk.CTkScrollableFrame(Settings)
