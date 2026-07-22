@@ -17,6 +17,7 @@ from output import (
 )
 from retrieval_rate_tab import build_retrieval_rate_tab
 from msa_tab import build_msa_tab
+from database_tab import build_database_tab
 import database
 
 df = None
@@ -46,6 +47,7 @@ Fetch_Fasta = tabs.add("Fetch FASTA")
 Settings = tabs.add("Settings")
 Retrieval_Rate = tabs.add("Retrieval Rate")
 MSA = tabs.add("MSA")
+Database_tab = tabs.add("Database")
 Terminal = tabs.add("Terminal")
 
 settings_scroll = ctk.CTkScrollableFrame(Settings)
@@ -53,6 +55,7 @@ settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
 build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 build_msa_tab(MSA, app)
+build_database_tab(Database_tab, app)
 
 
 # LEFT PANEL--------------------------------------------------------
