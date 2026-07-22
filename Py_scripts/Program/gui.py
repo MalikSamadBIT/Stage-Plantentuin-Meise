@@ -17,6 +17,7 @@ from output import (
 )
 from retrieval_rate_tab import build_retrieval_rate_tab
 from msa_tab import build_msa_tab
+import database
 
 df = None
 retrieval_data = None
@@ -421,6 +422,36 @@ zero_species_checkbox = ctk.CTkCheckBox(
     command=update_preview
 )
 zero_species_checkbox.pack(anchor="w", pady=2)
+
+
+# DATABASE (optional, additive - alongside the file outputs above, not
+# instead of them)---------------------------------------------------------
+
+save_database_var = ctk.BooleanVar(value=False)
+db_path = ctk.StringVar()
+
+
+def choose_database():
+    path = filedialog.asksaveasfilename(
+        title="Select or create a database file",
+        defaultextension=".db",
+        filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
+        confirmoverwrite=False  # existing .db file = "keep adding to it", not "overwrite"
+    )
+    if path:
+        db_path.set(path)
+
+
+database_checkbox = ctk.CTkCheckBox(
+    scroll,
+    text="Also save results to a local database (SQLite)",
+    variable=save_database_var
+)
+database_checkbox.pack(anchor="w", pady=(10, 2))
+
+ctk.CTkButton(scroll, text="Select/Create Database File",
+              command=choose_database).pack(fill="x", pady=5)
+ctk.CTkLabel(scroll, textvariable=db_path).pack(anchor="w", pady=(0, 10))
 
 
 # SETTINGS-----------------------------------------------------------------------------
@@ -1194,6 +1225,16 @@ def run_search():
     if save_zero_species_var.get():
         zero_species_path = os.path.join(output_dir.get(), "zero_species.csv")
         write_zero_species_csv(zero_species_path, retrieval_data)
+
+    if save_database_var.get() and db_path.get():
+        try:
+            conn = database.connect(db_path.get())
+            run_id = database.create_run(conn, output_dir.get(), source)
+            inserted = database.insert_sequences(conn, run_id, results)
+            conn.close()
+            log(f"Saved {inserted} new sequence(s) to database: {db_path.get()}")
+        except Exception as e:
+            log(f"Database save failed: {e}")
 
     Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
 
