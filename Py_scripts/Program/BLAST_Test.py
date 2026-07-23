@@ -25,6 +25,7 @@ def build_database_tab(parent, root=None):
     root: the main app window, used as the file-dialog parent.
     """
     db_path = ctk.StringVar()
+    blast_db_path = ctk.StringVar()
     full_df = None
     view_df = None
     sort_state = {}
@@ -45,7 +46,7 @@ def build_database_tab(parent, root=None):
             load_data()
 
     ctk.CTkButton(
-        top_bar, text="Select Database File...", command=choose_database
+        top_bar, text="Select Database", command=choose_database
     ).pack(side="left", padx=(0, 5))
 
     ctk.CTkButton(
@@ -53,7 +54,7 @@ def build_database_tab(parent, root=None):
     ).pack(side="left", padx=(0, 5))
 
     ctk.CTkButton(
-        top_bar, text="Run BLAST", command=lambda: run_blast()
+        top_bar, text="Select/Create BLAST Database", command=lambda: open_blast_db_dialog()
     ).pack(side="left", padx=(0, 5))
 
     query_bar = ctk.CTkFrame(parent, fg_color="transparent")
@@ -64,8 +65,18 @@ def build_database_tab(parent, root=None):
                                width=500)
     query_entry.pack(side="left", pady=10)
 
+    run_bar = ctk.CTkFrame(parent, fg_color="transparent")
+    run_bar.pack(fill="x", padx=10, pady=(0, 5))
+
+    ctk.CTkButton(
+        run_bar, text="Run BLAST", command=lambda: run_blast()
+    ).pack(side="left", padx=(0, 5))
+
     ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
         anchor="w", padx=10, pady=10)
+
+    ctk.CTkLabel(parent, textvariable=blast_db_path, text_color="gray").pack(
+        anchor="w", padx=10, pady=(0, 5))
 
     status_label = ctk.CTkLabel(
         parent, text="No database loaded yet.", text_color="gray")
@@ -100,23 +111,46 @@ def build_database_tab(parent, root=None):
             status_label.configure(text=f"Failed to load database: {e}")
             return
 
-    def run_blast():
+    # BLAST DATABASE SELECTION / CREATION----------------------------------
+
+    def open_blast_db_dialog():
+        dialog = ctk.CTkToplevel(root)
+        dialog.title("Select/Create BLAST Database")
+        dialog.geometry("420x150")
+        dialog.transient(root)
+        dialog.grab_set()
+
+        ctk.CTkLabel(
+            dialog, text="Create a new BLAST database or select an existing one:"
+        ).pack(padx=20, pady=(20, 10))
+
+        def do_create():
+            dialog.destroy()
+            create_blast_db()
+
+        def do_select():
+            dialog.destroy()
+            select_blast_db()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=10)
+
+        ctk.CTkButton(
+            btn_frame, text="Create New Database", command=do_create
+        ).pack(side="left", padx=10)
+
+        ctk.CTkButton(
+            btn_frame, text="Select Existing Database", command=do_select
+        ).pack(side="left", padx=10)
+
+    def create_blast_db():
         if full_df is None or full_df.empty:
-            status_label.configure(
-                text="Load a database first.")
+            status_label.configure(text="Load a database first.")
             return
-
-        query_seq = query_entry.get().strip()
-        if not query_seq:
-            status_label.configure(text="Enter a query sequence first.")
-            return
-
-        with open(query_fasta, "w") as f:
-            f.write(f">query\n{query_seq}\n")
 
         path = filedialog.asksaveasfilename(
             parent=root,
-            title="Run BLAST",
+            title="Export sequences and create BLAST database",
         )
         if not path:
             return
@@ -141,23 +175,58 @@ def build_database_tab(parent, root=None):
                 header = f">{row['accession']} {row['species']} {row['marker']}"
                 f.write(header + "\n" + row["sequence"] + "\n")
 
-        status_label.configure(
-            text=f"Exported {len(rows)} sequence(s) to {os.path.basename(path)}.")
-
-        db_fasta = path
+        db_out = os.path.splitext(path)[0]
 
         try:
             # build a nucleotide BLAST database from the FASTA file
             subprocess.run(
                 [os.path.join(BLAST_BIN, "makeblastdb.exe"),
-                 "-in", db_fasta, "-dbtype", "nucl", "-out", "mydb"],
+                 "-in", path, "-dbtype", "nucl", "-out", db_out],
                 check=True
             )
+        except subprocess.CalledProcessError as e:
+            status_label.configure(text="Failed to create BLAST database.")
+            set_output(e.stderr or str(e))
+            return
 
-            # blastn query
+        blast_db_path.set(db_out)
+        status_label.configure(
+            text=f"Exported {len(rows)} sequence(s) and created BLAST database "
+            f"'{os.path.basename(db_out)}'.")
+
+    def select_blast_db():
+        path = filedialog.askopenfilename(
+            parent=root,
+            title="Select an existing BLAST database",
+            filetypes=[("BLAST nucleotide index", "*.nin"),
+                       ("All files", "*.*")]
+        )
+        if not path:
+            return
+
+        blast_db_path.set(os.path.splitext(path)[0])
+        status_label.configure(
+            text=f"Using existing BLAST database "
+            f"'{os.path.basename(blast_db_path.get())}'.")
+
+    def run_blast():
+        if not blast_db_path.get():
+            status_label.configure(
+                text="Select or create a BLAST database first.")
+            return
+
+        query_seq = query_entry.get().strip()
+        if not query_seq:
+            status_label.configure(text="Enter a query sequence first.")
+            return
+
+        with open(query_fasta, "w") as f:
+            f.write(f">query\n{query_seq}\n")
+
+        try:
             result = subprocess.run(
                 [os.path.join(BLAST_BIN, "blastn.exe"),
-                 "-query", query_fasta, "-db", "mydb", "-outfmt", "0"],
+                 "-query", query_fasta, "-db", blast_db_path.get(), "-outfmt", "0"],
                 capture_output=True, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
@@ -166,8 +235,7 @@ def build_database_tab(parent, root=None):
             return
 
         set_output(result.stdout)
-        status_label.configure(
-            text=f"Exported {len(rows)} sequence(s) to {os.path.basename(path)}. BLAST complete.")
+        status_label.configure(text="BLAST complete.")
 
 
 tabs = ctk.CTkTabview(tk)
