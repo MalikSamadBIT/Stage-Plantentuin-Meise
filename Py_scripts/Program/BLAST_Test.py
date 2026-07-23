@@ -89,7 +89,17 @@ def build_database_tab(parent, root=None):
         parent, text="No database loaded yet.", text_color="gray")
     status_label.pack(anchor="w", padx=10, pady=(0, 5))
 
-    # DATA LOADING / FILTER / SORT----------------------------------------
+    output_box = ctk.CTkTextbox(parent, font=("Courier New", 18))
+    output_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+    output_box.configure(state="disabled")
+
+    def set_output(text):
+        output_box.configure(state="normal")
+        output_box.delete("1.0", "end")
+        output_box.insert("1.0", text)
+        output_box.configure(state="disabled")
+
+    # DATA LOADING----------------------------------------
 
     def load_data():
         nonlocal full_df, view_df
@@ -146,22 +156,28 @@ def build_database_tab(parent, root=None):
 
         db_fasta = path
 
-        # build a nucleotide BLAST database from the FASTA file
-        subprocess.run(
-            [os.path.join(BLAST_BIN, "makeblastdb.exe"),
-             "-in", db_fasta, "-dbtype", "nucl", "-out", "mydb"],
-            check=True
-        )
+        try:
+            # build a nucleotide BLAST database from the FASTA file
+            subprocess.run(
+                [os.path.join(BLAST_BIN, "makeblastdb.exe"),
+                 "-in", db_fasta, "-dbtype", "nucl", "-out", "mydb"],
+                check=True
+            )
 
-        # blastn query
+            # blastn query
+            result = subprocess.run(
+                [os.path.join(BLAST_BIN, "blastn.exe"),
+                 "-query", query_fasta, "-db", "mydb", "-outfmt", "0"],
+                capture_output=True, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            status_label.configure(text="BLAST run failed.")
+            set_output(e.stderr or str(e))
+            return
 
-        result = subprocess.run(
-            [os.path.join(BLAST_BIN, "blastn.exe"),
-             "-query", query_fasta, "-db", "mydb", "-outfmt", "0"],
-            capture_output=True, text=True, check=True
-        )
-
-        print(result.stdout)
+        set_output(result.stdout)
+        status_label.configure(
+            text=f"Exported {len(rows)} sequence(s) to {os.path.basename(path)}. BLAST complete.")
 
 
 tabs = ctk.CTkTabview(tk)
