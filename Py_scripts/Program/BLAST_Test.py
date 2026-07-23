@@ -65,8 +65,18 @@ def build_database_tab(parent, root=None):
                                width=500)
     query_entry.pack(side="left", pady=10)
 
+    blast_type_var = ctk.StringVar(value="blastn")
+
     run_bar = ctk.CTkFrame(parent, fg_color="transparent")
     run_bar.pack(fill="x", padx=10, pady=(0, 5))
+
+    ctk.CTkLabel(run_bar, text="BLAST type:").pack(side="left", padx=(0, 5))
+
+    ctk.CTkOptionMenu(
+        run_bar,
+        variable=blast_type_var,
+        values=["blastn", "blastp", "blastx", "tblastn", "tblastx"]
+    ).pack(side="left", padx=(0, 10))
 
     ctk.CTkButton(
         run_bar, text="Run BLAST", command=lambda: run_blast()
@@ -223,9 +233,11 @@ def build_database_tab(parent, root=None):
         with open(query_fasta, "w") as f:
             f.write(f">query\n{query_seq}\n")
 
+        blast_program = blast_type_var.get()
+
         try:
             result = subprocess.run(
-                [os.path.join(BLAST_BIN, "blastn.exe"),
+                [os.path.join(BLAST_BIN, f"{blast_program}.exe"),
                  "-query", query_fasta, "-db", blast_db_path.get(), "-outfmt", "0"],
                 capture_output=True, text=True, check=True
             )
@@ -235,7 +247,7 @@ def build_database_tab(parent, root=None):
             return
 
         set_output(result.stdout)
-        status_label.configure(text="BLAST complete.")
+        status_label.configure(text=f"{blast_program} complete.")
 
 
 tabs = ctk.CTkTabview(tk)
