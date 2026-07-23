@@ -11,32 +11,6 @@ BLAST_BIN = r"B:\Stage\tools\blast\bin"
 # db_fasta = r"B:\Stage\DB_test\DB_FASTA_Test.fasta"
 query_fasta = "query.fasta"
 
-
-with open(query_fasta, "w") as f:
-    f.write(
-
-        "AAATGAGATATTTTATATAAATTTCTTACGAAACAGAGAATCCGTCTTAATGGACTTGACTATTCTTAGGAATAGACATCTCTTCATAGTAAAACATTATCATTGTATATTGTTTTTGATATGTGATGCAACCCAGTTGCTTTAATATCAGTAGAATTTTCATTTATGTTTCCCCCTAGGTTTTCTATATTGATATGAAACCTATTAAGTATCGAACTGATTGGTTAATGAAAAATGATTTTTACTGAACTAGTATTACATATTTCGATACGGGGGAAAGAAAAAAAAAACCCTAATTAATGTGATTTCAAATAAATAAATAAATAAATAAATAAATAAATAAATATATATATATTTATTTATTTATTTATTTATTTATTTTAATTTTGTGAGGAAAAGAAAAAAATTATTATCTTTTTCTTTTTCTAGTGGAAAGGAATCTTCCCACAATCCCGTATTGAGAATATGAGCCAAATATTAGGAATATGAGCTAAAATATAAATAAACTCAATATGAATAAGTAAATCAAGGTGGTAACTTTTATTCATAATCAACCGATCAACTCGGTATCAAAGATTGTTATCGATACAACCAAACAAATTTAATACTATTAGAATTTTATGGAAATAAATCCTTTTGCTCTTGGAGTTTCTACACTTGTCGACAGAAATGTAGGATATATCACTCAGA\n"
-    )
-'''
-# build a nucleotide BLAST database from the FASTA file
-subprocess.run(
-    [os.path.join(BLAST_BIN, "makeblastdb.exe"),
-     "-in", db_fasta, "-dbtype", "nucl", "-out", "mydb"],
-    check=True
-)
-
-# blastn query
-
-result = subprocess.run(
-    [os.path.join(BLAST_BIN, "blastn.exe"),
-     "-query", query_fasta, "-db", "mydb", "-outfmt", "6"],
-    capture_output=True, text=True, check=True
-)
-
-print(result.stdout)
-
-'''
-
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
@@ -80,10 +54,18 @@ def build_database_tab(parent, root=None):
 
     ctk.CTkButton(
         top_bar, text="Run BLAST", command=lambda: run_blast()
-    ).pack(side="left")
+    ).pack(side="left", padx=(0, 5))
+
+    query_bar = ctk.CTkFrame(parent, fg_color="transparent")
+    query_bar.pack(fill="x", padx=10, pady=(0, 5))
+
+    query_entry = ctk.CTkEntry(query_bar, placeholder_text="Enter the query sequence",
+                               font=("Courier New", 18),
+                               width=500)
+    query_entry.pack(side="left", pady=10)
 
     ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
-        anchor="w", padx=10, pady=(0, 5))
+        anchor="w", padx=10, pady=10)
 
     status_label = ctk.CTkLabel(
         parent, text="No database loaded yet.", text_color="gray")
@@ -123,6 +105,14 @@ def build_database_tab(parent, root=None):
             status_label.configure(
                 text="Load a database first.")
             return
+
+        query_seq = query_entry.get().strip()
+        if not query_seq:
+            status_label.configure(text="Enter a query sequence first.")
+            return
+
+        with open(query_fasta, "w") as f:
+            f.write(f">query\n{query_seq}\n")
 
         path = filedialog.asksaveasfilename(
             parent=root,
