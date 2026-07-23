@@ -157,7 +157,7 @@ def build_database_tab(parent, root=None):
 
         result = subprocess.run(
             [os.path.join(BLAST_BIN, "blastn.exe"),
-             "-query", query_fasta, "-db", "mydb", "-outfmt", "6"],
+             "-query", query_fasta, "-db", "mydb", "-outfmt", "0"],
             capture_output=True, text=True, check=True
         )
 

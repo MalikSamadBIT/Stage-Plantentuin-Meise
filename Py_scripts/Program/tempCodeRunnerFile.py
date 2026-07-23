@@ -1,5 +1,2 @@
-<<<<<<< HEAD
-MSA 
-=======
-tabs
->>>>>>> MSA_scoring
+
+            capture_output=True, text=True, check=True
