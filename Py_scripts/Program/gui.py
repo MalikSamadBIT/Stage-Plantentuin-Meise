@@ -18,6 +18,7 @@ from output import (
 from retrieval_rate_tab import build_retrieval_rate_tab
 from msa_tab import build_msa_tab
 from database_tab import build_database_tab
+from blast_tab import build_blast_tab
 import database
 
 df = None
@@ -54,6 +55,7 @@ settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 build_msa_tab(MSA, app)
 build_database_tab(Database_tab, app)
+build_blast_tab(BLAST, app)
 
 
 # LEFT PANEL--------------------------------------------------------
