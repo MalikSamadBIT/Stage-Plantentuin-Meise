@@ -254,7 +254,7 @@ tabs = ctk.CTkTabview(tk)
 tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
 
-Database_tab = tabs.add("Database")
+Database_tab = tabs.add("BLAST")
 
 build_database_tab(Database_tab, tk)
 
