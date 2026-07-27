@@ -19,5 +19,7 @@ for name in test_list:
     html = page.read().decode("utf-8")
     soup = BeautifulSoup(html, "html.parser")
 
-    name_page = soup.find_all('a', {'href': re.compile(r'^/species/\d+/$')})
-    print(name_page)
+    name_page = soup.find('a', {'href': re.compile(r'^/species/\d+/$')})
+    # print(name_page)
+    if name_page:
+        print(name_page['href'])
