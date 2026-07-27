@@ -5,7 +5,7 @@ import re
 test_list = ["Huperzia selago", "Lycopodiella inundata", "Lycopodium clavatum"]
 
 url = "https://waarnemingen.be/search/?q="
-
+url2 = "https://waarnemingen.be"
 for name in test_list:
     name_split = name.split()
 
@@ -22,4 +22,17 @@ for name in test_list:
     name_page = soup.find('a', {'href': re.compile(r'^/species/\d+/$')})
     # print(name_page)
     if name_page:
-        print(name_page['href'])
+        # print(name_page['href'])
+        species_url = url2 + name_page['href'] + "names/"
+        # print(species_url)
+
+        page2 = urlopen(species_url)
+        html2 = page2.read().decode("utf-8")
+        soup2 = BeautifulSoup(html2, "html.parser")
+
+        synonyms = soup2.find_all(
+            'div', class_=re.compile(r'col-sm-2 col-xs-5'))
+        for synonym in synonyms:
+            strong = synonym.find('strong')
+            if strong:
+                print(strong.get_text(strip=True))
