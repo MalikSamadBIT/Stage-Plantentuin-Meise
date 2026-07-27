@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import re
 
 test_list = ["Huperzia selago", "Lycopodiella inundata", "Lycopodium clavatum"]
+all_synonyms = {}
 
 url = "https://waarnemingen.be/search/?q="
 url2 = "https://waarnemingen.be"
@@ -30,9 +31,20 @@ for name in test_list:
         html2 = page2.read().decode("utf-8")
         soup2 = BeautifulSoup(html2, "html.parser")
 
+        synonyms_list = []
+
         synonyms = soup2.find_all(
             'div', class_=re.compile(r'col-sm-2 col-xs-5'))
         for synonym in synonyms:
             strong = synonym.find('strong')
             if strong:
-                print(strong.get_text(strip=True))
+                # print(strong.get_text(strip=True))
+                synonyms_list.append(strong.get_text(strip=True))
+
+        synonyms_languages_list = []
+
+        synonyms_languages = soup2.find_all(
+            'div', class_=re.compile(r'col-sm-3 col-xs-7'))
+        for language in synonyms_languages:
+            synonyms_languages_list.append(language.get_text(strip=True))
+            print(language.get_text(strip=True))
