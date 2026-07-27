@@ -34,12 +34,6 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
         return value if value else entry.cget("placeholder_text")
 
     # TABLE FILTER/SORT STATE-------------------------------------------
-    # full_df: the unfiltered data for whatever is currently shown in Table
-    #          view - filtering always re-derives from this, not from a
-    #          previous filter result, matching how Excel's column filter
-    #          always operates on the full column.
-    # view_df: full_df with the active filter/sort applied - what's
-    #          actually populated into the Treeview right now.
 
     full_df = None
     view_df = None
@@ -116,7 +110,8 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
         ascending = not sort_state.get(col, False)
         sort_state[col] = ascending
 
-        view_df = view_df.sort_values(by=col, ascending=ascending, kind="stable")
+        view_df = view_df.sort_values(
+            by=col, ascending=ascending, kind="stable")
         populate_tree(view_df)
 
     def Plots(selected_plot):
@@ -224,8 +219,7 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
 
         loaded_df = new_df
         Plots(plot_options.get())
-        # set after Plots(), since Plots() clears status_label once it has
-        # valid data to show - this confirmation needs to be the last word
+
         status_label.configure(text=f"Loaded: {os.path.basename(file_path)}")
 
     def save_plot():
