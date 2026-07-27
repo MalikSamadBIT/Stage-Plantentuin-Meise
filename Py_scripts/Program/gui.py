@@ -18,16 +18,14 @@ from output import (
 from retrieval_rate_tab import build_retrieval_rate_tab
 from msa_tab import build_msa_tab
 from database_tab import build_database_tab
+from blast_tab import build_blast_tab
 import database
 
 df = None
 retrieval_data = None
-resume_jobs = None  # set by "Load no_matches.txt to resume"; overrides
-# the normal species/marker selection until cleared
-resume_baseline_summary = None  # that previous run's summary.csv, if found
-# alongside the loaded no_matches.txt - lets
-# a resumed run's outputs merge into the
-# full dataset instead of replacing it
+resume_jobs = None
+
+resume_baseline_summary = None
 
 
 # GUI SETUP---------------------------------------
@@ -48,6 +46,7 @@ Settings = tabs.add("Settings")
 Retrieval_Rate = tabs.add("Retrieval Rate")
 MSA = tabs.add("MSA")
 Database_tab = tabs.add("Database")
+BLAST = tabs.add("BLAST")
 Terminal = tabs.add("Terminal")
 
 settings_scroll = ctk.CTkScrollableFrame(Settings)
@@ -56,6 +55,7 @@ settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 build_msa_tab(MSA, app)
 build_database_tab(Database_tab, app)
+build_blast_tab(BLAST, app)
 
 
 # LEFT PANEL--------------------------------------------------------
@@ -141,7 +141,7 @@ retry_ncbi_checkbox = ctk.CTkCheckBox(
     text="Retry BOLD no-matches with NCBI",
     variable=retry_ncbi_var
 )
-# not packed here - only shown when BOLD is the selected source
+# only shown when BOLD is the selected source
 
 
 # FILE SECTION----------------------------------------------------------
@@ -176,9 +176,7 @@ species_textbox.pack(fill="x", pady=(0, 10))
 
 
 # RESUME FROM A PARTIAL RUN-----------------------------------------------------------
-# Loads a previous run's no_matches.txt and, when active, overrides the
-# species textbox/CSV and marker checkboxes entirely - only the exact
-# missing (species, marker) pairs from that file get searched.
+# overrides the species textbox/CSV and marker checkboxes
 
 ctk.CTkLabel(scroll, text="🔁 RESUME", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(5, 2))
@@ -218,9 +216,7 @@ def load_resume_file():
 
     resume_jobs = pending
 
-    # a sibling summary.csv (from the same run) lets the resumed run's
-    # no_matches.txt/summary.csv get merged back into the full dataset
-    # instead of being replaced by just this batch's results
+    # no_matches.txt/summary.csv get merged back into the full dataset instead of being replaced by just this batch's results
     run_folder = os.path.dirname(path)
     summary_path = os.path.join(run_folder, "summary.csv")
 
@@ -427,8 +423,7 @@ zero_species_checkbox = ctk.CTkCheckBox(
 zero_species_checkbox.pack(anchor="w", pady=2)
 
 
-# DATABASE (optional, additive - alongside the file outputs above, not
-# instead of them)---------------------------------------------------------
+# DATABASE (alongside the file outputs)---------------------------------------------------------
 
 save_database_var = ctk.BooleanVar(value=False)
 db_path = ctk.StringVar()
@@ -439,7 +434,7 @@ def choose_database():
         title="Select or create a database file",
         defaultextension=".db",
         filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
-        confirmoverwrite=False  # existing .db file = "keep adding to it", not "overwrite"
+        confirmoverwrite=False  # existing .db file = keep adding to it, not overwrite
     )
     if path:
         db_path.set(path)
@@ -458,15 +453,8 @@ ctk.CTkLabel(scroll, textvariable=db_path).pack(anchor="w", pady=(0, 10))
 
 
 # SETTINGS-----------------------------------------------------------------------------
-# lives in its own tab (Settings) instead of the Fetch FASTA tab, so more
-# settings can be added later without further crowding the search form.
 
 # NCBI CREDENTIALS-----------------------------------------------------------------
-# NCBI requires each user to identify themselves with their own email
-# (and recommends an API key for the higher 10 req/s rate limit), so
-# these are never hardcoded/shared - every run uses whatever is entered
-# here.
-
 ctk.CTkLabel(settings_scroll, text="🔑 NCBI CREDENTIALS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(5, 5))
 
@@ -527,10 +515,6 @@ top_n_entry.pack(fill="x", pady=5)
 # LENGTH BANDS (bp)------------------------------------------------------
 # Full score band: sequence length gets the full length score.
 # Partial score band: extends past the full band on either side and
-# gets a reduced score. Outside both bands scores 0. Different markers
-# (e.g. a full ITS region vs. a short barcode) want different ranges,
-# so these are adjustable rather than hardcoded, with optional per-marker
-# overrides on top of the default below.
 
 ctk.CTkLabel(settings_scroll, text="Default full score length band (bp)").pack(
     anchor="w", pady=(10, 0))
@@ -711,9 +695,7 @@ def run_search():
     global df, retrieval_data
 
     if resume_jobs is not None:
-        # resume mode: the exact (species, marker) pairs come from a
-        # loaded no_matches.txt, bypassing the species textbox/CSV and
-        # marker checkboxes entirely
+        # resume mode: the exact (species, marker) pairs come from a loaded no_matches.txt
         all_jobs = list(resume_jobs)
         species_list = list(dict.fromkeys(
             species for species, marker in all_jobs))
@@ -817,9 +799,6 @@ def run_search():
 
     source = source_var.get()
 
-    # NCBI requires each user to identify themselves with their own email -
-    # only enforced when this run will actually touch NCBI (a plain BOLD
-    # run that isn't retrying no-matches through NCBI never needs it)
     needs_ncbi = source in ("NCBI", "NCBI + BOLD") or (
         source == "BOLD" and retry_ncbi_var.get())
 
@@ -841,9 +820,8 @@ def run_search():
         Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
         return
 
-    # which markers to actually search for a given species - normally
-    # every selected marker, but a resume run may only need specific
-    # markers per species, not the full species x markers cross product
+    # which markers to actually search for a given species
+
     jobs_by_species = defaultdict(list)
     for species, marker in all_jobs:
         jobs_by_species[species].append(marker)
@@ -1171,8 +1149,8 @@ def run_search():
                 log(f"Pausing {batch_pause}s before next batch...")
                 time.sleep(batch_pause)
 
-        # merge: pool both sources' candidates per job and keep the overall
-        # top N by standardized score
+        # merge: pool both sources
+
         all_seen_jobs = set(ncbi_results.keys()) | set(bold_results.keys())
 
         for job in all_seen_jobs:
@@ -1192,11 +1170,8 @@ def run_search():
         save_metadata_var.get()
     )
 
-    # resuming only re-searches pairs that previously had zero matches, so
-    # species_list/markers here only cover that narrower batch - merge into
-    # the previous run's summary.csv (if one was found alongside the loaded
-    # no_matches.txt) instead of writing outputs that only reflect this
-    # batch and silently drop every species/marker that already succeeded
+    # resuming only re-searches pairs that previously had zero matches, merge into the previous run's summary.csv
+
     if resume_jobs is not None and resume_baseline_summary is not None:
         retrieval_data = merge_summary_dataframe(
             resume_baseline_summary, results)
@@ -1209,8 +1184,7 @@ def run_search():
         ]
     else:
         matched_set = {(species, marker) for species, marker, _, _ in results}
-        # built regardless of the "Save summary.csv" checkbox, so the
-        # Retrieval Rate tab always has something to display after a run
+        # built regardless of the "Save summary.csv" checkbox, so the Retrieval Rate tab always has something to display after a run
         retrieval_data = build_summary_dataframe(
             results, species_list, markers)
         full_species_list = species_list
@@ -1316,9 +1290,7 @@ def on_closing():
         "ncbi_api_key": ncbi_api_key_entry.get().strip(),
     })
 
-    # ThreadPoolExecutor workers spawned by run_search() are non-daemon,
-    # so a plain exit would hang until any in-flight NCBI/BOLD calls
-    # finish. Force-kill the process instead.
+    # ThreadPoolExecutor workers spawned by run_search() are non-daemon, so a plain exit would hang until any in-flight NCBI/BOLD calls finish. Force-kill the process instead.
     app.destroy()
     os._exit(0)
 
