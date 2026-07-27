@@ -8,6 +8,7 @@ all_synonyms = {}
 url = "https://waarnemingen.be/search/?q="
 url2 = "https://waarnemingen.be"
 for name in test_list:
+    species_synonyms = {}
     name_split = name.split()
 
     genus = name_split[0]
@@ -47,4 +48,13 @@ for name in test_list:
             'div', class_=re.compile(r'col-sm-3 col-xs-7'))
         for language in synonyms_languages:
             synonyms_languages_list.append(language.get_text(strip=True))
-            print(language.get_text(strip=True))
+            # print(language.get_text(strip=True))
+
+        language_counter = 0
+        for l in synonyms_languages_list:
+            species_synonyms[l] = synonyms_list[language_counter]
+            language_counter += 1
+
+    all_synonyms[name] = species_synonyms
+
+print(all_synonyms)
