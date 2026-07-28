@@ -43,8 +43,8 @@ tabs = ctk.CTkTabview(app)
 tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
 Home = tabs.add("Home")
-Fetch_Fasta = tabs.add("Fetch FASTA")
 Settings = tabs.add("Settings")
+Fetch_Fasta = tabs.add("Fetch FASTA")
 Retrieval_Rate = tabs.add("Retrieval Rate")
 Synonyms = tabs.add("Synonym search")
 MSA = tabs.add("MSA")
@@ -59,7 +59,12 @@ build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 build_msa_tab(MSA, app)
 build_database_tab(Database_tab, app)
 build_blast_tab(BLAST, app)
-build_synonym_tab(Synonyms, app)
+build_synonym_tab(
+    Synonyms, app,
+    get_ncbi_credentials=lambda: (
+        ncbi_email_entry.get().strip(), ncbi_api_key_entry.get().strip()
+    )
+)
 
 
 # LEFT PANEL--------------------------------------------------------

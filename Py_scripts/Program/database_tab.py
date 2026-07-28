@@ -7,12 +7,18 @@ import pandas as pd
 
 import database
 
-# sequence is excluded from the browsable table - it's long and would
+# table dropdown -> (SQL source, columns to select or None for "*")
+# sequence is excluded from the Sequences columns - it's long and would
 # dominate the view - but export_fasta still pulls it back out per row
-DISPLAY_COLUMNS = [
-    "species", "marker", "source", "accession", "organism", "length",
-    "geo_loc", "score", "fetched_at"
-]
+TABLE_OPTIONS = {
+    "Sequences": ("sequences_view", [
+        "species", "queried_as", "marker", "source", "accession", "organism",
+        "length", "geo_loc", "score", "fetched_at"
+    ]),
+    "Species": ("species", None),
+    "Synonyms": ("synonyms_view", ["species", "language", "name"]),
+    "Runs": ("runs", None),
+}
 
 
 def build_database_tab(parent, root=None):
@@ -51,6 +57,14 @@ def build_database_tab(parent, root=None):
 
     ctk.CTkButton(
         top_bar, text="Export View to FASTA...", command=lambda: export_fasta()
+    ).pack(side="left", padx=(0, 15))
+
+    ctk.CTkLabel(top_bar, text="Table:").pack(side="left", padx=(0, 5))
+
+    table_var = ctk.StringVar(value="Sequences")
+    ctk.CTkOptionMenu(
+        top_bar, variable=table_var, values=list(TABLE_OPTIONS.keys()),
+        command=lambda _choice: load_data(), width=120
     ).pack(side="left")
 
     ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
@@ -140,10 +154,13 @@ def build_database_tab(parent, root=None):
             status_label.configure(text="Select a database file first.")
             return
 
+        source, columns = TABLE_OPTIONS[table_var.get()]
+        select_clause = ", ".join(columns) if columns else "*"
+
         try:
             conn = database.connect(db_path.get())
             full_df = pd.read_sql_query(
-                f"SELECT {', '.join(DISPLAY_COLUMNS)} FROM sequences", conn
+                f"SELECT {select_clause} FROM {source}", conn
             )
             conn.close()
         except Exception as e:
@@ -159,7 +176,8 @@ def build_database_tab(parent, root=None):
         filter_entry.delete(0, "end")
 
         populate_tree(view_df)
-        status_label.configure(text=f"{len(full_df)} sequence(s) loaded.")
+        status_label.configure(
+            text=f"{len(full_df)} row(s) loaded from {table_var.get()}.")
 
     def _column_matches(series, query):
         if pd.api.types.is_numeric_dtype(series):
@@ -192,7 +210,7 @@ def build_database_tab(parent, root=None):
 
         populate_tree(view_df)
         status_label.configure(
-            text=f"{len(view_df)} of {len(full_df)} sequence(s) shown.")
+            text=f"{len(view_df)} of {len(full_df)} row(s) shown.")
 
     def clear_filter():
         filter_entry.delete(0, "end")
@@ -219,6 +237,11 @@ def build_database_tab(parent, root=None):
                 text="Nothing to export - load a database first.")
             return
 
+        if table_var.get() != "Sequences":
+            status_label.configure(
+                text="FASTA export is only available for the Sequences table.")
+            return
+
         path = filedialog.asksaveasfilename(
             parent=root,
             title="Export current view to FASTA",
@@ -239,7 +262,7 @@ def build_database_tab(parent, root=None):
             conn = database.connect(db_path.get())
             placeholders = ",".join("?" for _ in accessions)
             rows = conn.execute(
-                f"SELECT species, marker, accession, sequence FROM sequences "
+                f"SELECT species, marker, accession, sequence FROM sequences_view "
                 f"WHERE accession IN ({placeholders})",
                 accessions
             ).fetchall()
