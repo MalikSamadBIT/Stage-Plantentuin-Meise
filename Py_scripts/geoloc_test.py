@@ -1,8 +1,12 @@
 import json
+import re
 import threading
+from urllib.parse import quote_plus
+from urllib.request import urlopen
 
 import customtkinter
 import tkintermapview
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 from tkcalendar import DateEntry
 
@@ -12,10 +16,26 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-SPECIES_ID = 2566
+SEARCH_URL = "https://waarnemingen.be/search/?q="
+
+DEFAULT_SPECIES_NAME = "Huperzia selago"
 START_DATE = "2016-07-30"
 END_DATE = "2026-07-28"
 MAP_TYPE = "grid10k"
+
+
+def lookup_species_id(name):
+    # The /search/ page isn't behind the Anubis anti-bot check (unlike the
+    # /maps/ endpoint), so a plain urlopen works here - same approach as
+    # synonyms.py uses to resolve a species name to its numeric ID.
+    query_url = SEARCH_URL + quote_plus(name.strip())
+    with urlopen(query_url) as page:
+        html = page.read().decode("utf-8")
+    soup = BeautifulSoup(html, "html.parser")
+    link = soup.find("a", {"href": re.compile(r"^/species/\d+/$")})
+    if not link:
+        raise ValueError(f"No species found for '{name}'")
+    return int(re.search(r"/species/(\d+)/", link["href"]).group(1))
 
 
 def _cell_centroid(coordinates):
@@ -25,7 +45,7 @@ def _cell_centroid(coordinates):
     return sum(lats) / len(lats), sum(lons) / len(lons)
 
 
-def fetch_grid_data(start_date, end_date, species_id=SPECIES_ID, map_type=MAP_TYPE):
+def fetch_grid_data(species_id, start_date, end_date, map_type=MAP_TYPE):
     # Returns a list of dicts: cell_id, lat, lon, count, num_obs.
     interval = (end_date - start_date).days * 86400
     base_url = (
@@ -77,17 +97,25 @@ def fetch_grid_data(start_date, end_date, species_id=SPECIES_ID, map_type=MAP_TY
 def main():
     tk = customtkinter.CTk()
     tk.title("geoloc")
-    tk.geometry("760x560")
+    tk.geometry("900x560")
 
     controls = customtkinter.CTkFrame(tk)
     controls.pack(fill="x", padx=8, pady=8)
 
-    customtkinter.CTkLabel(controls, text="Start date:").pack(side="left", padx=(8, 4))
+    customtkinter.CTkLabel(controls, text="Species:").pack(
+        side="left", padx=(8, 4))
+    species_entry = customtkinter.CTkEntry(controls, width=160)
+    species_entry.pack(side="left", padx=(0, 12))
+    species_entry.insert(0, DEFAULT_SPECIES_NAME)
+
+    customtkinter.CTkLabel(controls, text="Start date:").pack(
+        side="left", padx=(8, 4))
     start_date_entry = DateEntry(controls, date_pattern="yyyy-mm-dd")
     start_date_entry.pack(side="left", padx=(0, 12))
     start_date_entry.set_date(START_DATE)
 
-    customtkinter.CTkLabel(controls, text="End date:").pack(side="left", padx=(0, 4))
+    customtkinter.CTkLabel(controls, text="End date:").pack(
+        side="left", padx=(0, 4))
     end_date_entry = DateEntry(controls, date_pattern="yyyy-mm-dd")
     end_date_entry.pack(side="left", padx=(0, 12))
     end_date_entry.set_date(END_DATE)
@@ -99,7 +127,7 @@ def main():
     status_label.pack(side="left", padx=12)
 
     map_widget = tkintermapview.TkinterMapView(
-        tk, width=760, height=480, corner_radius=0)
+        tk, width=900, height=480, corner_radius=0)
     map_widget.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
     map_widget.set_position(52.1326, 5.2913)
@@ -111,9 +139,10 @@ def main():
     # `result`, and the main thread polls it via tk.after.
     result = {}
 
-    def load_data(start_date, end_date):
+    def load_data(species_name, start_date, end_date):
         try:
-            result["cells"] = fetch_grid_data(start_date, end_date)
+            species_id = lookup_species_id(species_name)
+            result["cells"] = fetch_grid_data(species_id, start_date, end_date)
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -128,10 +157,12 @@ def main():
             for cell in cells:
                 map_widget.set_marker(
                     cell["lat"], cell["lon"],
-                    text=f"Max. individuen: {cell['count']}\nWaarnemingen: {cell['num_obs']}")
+                    # text=f"Max. individuen: {cell['count']}\nWaarnemingen: {cell['num_obs']}")
+                    text=f"{cell['num_obs']}")
             if cells:
                 map_widget.fit_bounding_box(
-                    (max(c["lat"] for c in cells), min(c["lon"] for c in cells)),
+                    (max(c["lat"] for c in cells), min(c["lon"]
+                     for c in cells)),
                     (min(c["lat"] for c in cells), max(c["lon"] for c in cells)))
             return
         if "error" in result:
@@ -142,14 +173,21 @@ def main():
         tk.after(200, poll)
 
     def on_load_clicked():
+        species_name = species_entry.get().strip()
         start_date = start_date_entry.get_date()
         end_date = end_date_entry.get_date()
+        if not species_name:
+            status_label.configure(text="Enter a species name")
+            return
         if start_date >= end_date:
             status_label.configure(text="Start date must be before end date")
             return
         load_button.configure(state="disabled", text="Loading...")
-        status_label.configure(text="Loading observation data...")
-        threading.Thread(target=load_data, args=(start_date, end_date), daemon=True).start()
+        status_label.configure(text=f"Looking up '{species_name}'...")
+        threading.Thread(
+            target=load_data, args=(
+                species_name, start_date, end_date), daemon=True
+        ).start()
         tk.after(200, poll)
 
     load_button.configure(command=on_load_clicked)
