@@ -21,13 +21,17 @@ TABLE_OPTIONS = {
 }
 
 
-def build_database_tab(parent, root=None):
+def build_database_tab(parent, root=None, db_path=None):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
+    db_path: shared ctk.StringVar holding the database file chosen in the
+        Settings tab. Falls back to a private one if this tab is ever used
+        standalone.
     """
 
-    db_path = ctk.StringVar()
+    if db_path is None:
+        db_path = ctk.StringVar()
     full_df = None
     view_df = None
     sort_state = {}
@@ -38,20 +42,6 @@ def build_database_tab(parent, root=None):
 
     top_bar = ctk.CTkFrame(parent, fg_color="transparent")
     top_bar.pack(fill="x", padx=10, pady=(10, 5))
-
-    def choose_database():
-        path = filedialog.askopenfilename(
-            parent=root,
-            title="Select a database file",
-            filetypes=[("SQLite database", "*.db"), ("All files", "*.*")]
-        )
-        if path:
-            db_path.set(path)
-            load_data()
-
-    ctk.CTkButton(
-        top_bar, text="Select Database File...", command=choose_database
-    ).pack(side="left", padx=(0, 5))
 
     ctk.CTkButton(
         top_bar, text="Reload", command=lambda: load_data()
@@ -69,11 +59,14 @@ def build_database_tab(parent, root=None):
         command=lambda _choice: load_data(), width=120
     ).pack(side="left")
 
-    ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
-        anchor="w", padx=10, pady=(0, 5))
+    ctk.CTkLabel(
+        parent, textvariable=db_path, text_color="gray"
+    ).pack(anchor="w", padx=10, pady=(0, 5))
 
     status_label = ctk.CTkLabel(
-        parent, text="No database loaded yet.", text_color="gray")
+        parent, text="No database selected - choose one in the Settings tab.",
+        text_color="gray"
+    )
     status_label.pack(anchor="w", padx=10, pady=(0, 5))
 
     # FILTER BAR---------------------------------------------------------
@@ -159,7 +152,8 @@ def build_database_tab(parent, root=None):
         nonlocal full_df, view_df
 
         if not db_path.get():
-            status_label.configure(text="Select a database file first.")
+            status_label.configure(
+                text="No database selected - choose one in the Settings tab.")
             return
 
         source, columns = TABLE_OPTIONS[table_var.get()]
@@ -353,3 +347,13 @@ def build_database_tab(parent, root=None):
 
         status_label.configure(
             text=f"Exported {len(rows)} sequence(s) to {os.path.basename(path)}.")
+
+    # REACT TO THE SHARED DATABASE CHOICE---------------------------------
+    # db_path is shared with the Settings tab (and Fetch FASTA/Synonym
+    # search) - reload automatically whenever it's changed there, and load
+    # immediately if a database was already chosen before this tab was built.
+
+    db_path.trace_add("write", lambda *_: load_data())
+
+    if db_path.get():
+        load_data()

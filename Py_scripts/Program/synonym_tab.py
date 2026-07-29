@@ -30,17 +30,21 @@ MAX_CANDIDATES = 10
 TOP_N = 1
 
 
-def build_synonym_tab(parent, root=None, get_ncbi_credentials=None):
+def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_path=None):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
     get_ncbi_credentials: callable -> (email, api_key), read from the
         Settings tab at search time (NCBI sequence search needs it).
+    db_path: shared ctk.StringVar holding the database file chosen in the
+        Settings tab. Falls back to a private one if this tab is ever used
+        standalone.
     """
 
     csv_path = ctk.StringVar()
     no_matches_path = ctk.StringVar()
-    db_path = ctk.StringVar()
+    if db_path is None:
+        db_path = ctk.StringVar()
 
     last_synonym_results = {}
     last_sequence_results = []
@@ -282,9 +286,8 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None):
     synonym_search_button.configure(command=start_synonym_search)
 
     # DATABASE-----------------------------------------------------------
-    # a database can be picked here, right after a synonym search, so the
-    # synonym names (linked to their canonical species) can be saved on
-    # their own - independent of whether a sequence search is ever run.
+    # the database file itself is chosen once in the Settings tab and shared
+    # across the whole program - this just saves into whatever's configured.
 
     ctk.CTkLabel(scroll, text="🗄 DATABASE", font=(
         "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(5, 2))
@@ -292,27 +295,13 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None):
     db_row = ctk.CTkFrame(scroll, fg_color="transparent")
     db_row.pack(fill="x", padx=10, pady=(0, 5))
 
-    def choose_database():
-        path = filedialog.asksaveasfilename(
-            parent=root,
-            title="Select or create a database file",
-            defaultextension=".db",
-            filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
-            confirmoverwrite=False
-        )
-        if path:
-            db_path.set(path)
-
-    ctk.CTkButton(
-        db_row, text="Select/Create Database File", command=choose_database
-    ).pack(side="left", padx=(0, 5))
-
     save_synonyms_button = ctk.CTkButton(
         db_row, text="Save Synonyms to Database")
     save_synonyms_button.pack(side="left")
 
-    ctk.CTkLabel(scroll, textvariable=db_path, text_color="gray").pack(
-        anchor="w", padx=10, pady=(0, 10))
+    ctk.CTkLabel(
+        scroll, textvariable=db_path, text_color="gray"
+    ).pack(anchor="w", padx=10, pady=(0, 10))
 
     def save_synonyms_to_database():
         if not last_synonym_results:
@@ -325,7 +314,7 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None):
 
         if not db_path.get():
             status_label.configure(
-                text="Select/create a database file first.", text_color="red")
+                text="Select a database file in the Settings tab first.", text_color="red")
             return
 
         try:
@@ -559,7 +548,7 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None):
 
         if not db_path.get():
             seq_status_label.configure(
-                text="Select/create a database file first.", text_color="red")
+                text="Select a database file in the Settings tab first.", text_color="red")
             return
 
         try:

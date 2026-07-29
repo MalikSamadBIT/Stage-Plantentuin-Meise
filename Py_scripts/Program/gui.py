@@ -29,6 +29,8 @@ resume_jobs = None
 
 resume_baseline_summary = None
 
+_saved_config = load_config()
+
 
 # GUI SETUP---------------------------------------
 ctk.set_appearance_mode("dark")
@@ -37,6 +39,10 @@ ctk.set_default_color_theme("dark-blue")
 app = ctk.CTk()
 app.geometry("1250x820")
 app.title("NCBI / BOLD Pipeline")
+
+# shared across the whole program (Fetch FASTA saving, Database tab,
+# Synonym search) - chosen once in the Settings tab, see below
+db_path = ctk.StringVar(value=_saved_config.get("db_path", ""))
 
 
 # TABS------------------------------------------------------------
@@ -59,13 +65,14 @@ settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
 build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 build_msa_tab(MSA, app)
-build_database_tab(Database_tab, app)
+build_database_tab(Database_tab, app, db_path=db_path)
 build_blast_tab(BLAST, app)
 build_synonym_tab(
     Synonyms, app,
     get_ncbi_credentials=lambda: (
         ncbi_email_entry.get().strip(), ncbi_api_key_entry.get().strip()
-    )
+    ),
+    db_path=db_path
 )
 build_maps_tab(Maps, app)
 
@@ -436,21 +443,9 @@ zero_species_checkbox.pack(anchor="w", pady=2)
 
 
 # DATABASE (alongside the file outputs)---------------------------------------------------------
+# the database file itself is shared program-wide, chosen once in Settings
 
 save_database_var = ctk.BooleanVar(value=False)
-db_path = ctk.StringVar()
-
-
-def choose_database():
-    path = filedialog.asksaveasfilename(
-        title="Select or create a database file",
-        defaultextension=".db",
-        filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
-        confirmoverwrite=False  # existing .db file = keep adding to it, not overwrite
-    )
-    if path:
-        db_path.set(path)
-
 
 database_checkbox = ctk.CTkCheckBox(
     scroll,
@@ -459,9 +454,13 @@ database_checkbox = ctk.CTkCheckBox(
 )
 database_checkbox.pack(anchor="w", pady=(10, 2))
 
-ctk.CTkButton(scroll, text="Select/Create Database File",
-              command=choose_database).pack(fill="x", pady=5)
-ctk.CTkLabel(scroll, textvariable=db_path).pack(anchor="w", pady=(0, 10))
+ctk.CTkLabel(
+    scroll, textvariable=db_path, text_color="gray"
+).pack(anchor="w", pady=(0, 2))
+ctk.CTkLabel(
+    scroll, text="(select/create the database file in the Settings tab)",
+    text_color="gray", font=("Arial", 11)
+).pack(anchor="w", pady=(0, 10))
 
 
 # SETTINGS-----------------------------------------------------------------------------
@@ -481,9 +480,41 @@ ncbi_api_key_entry = ctk.CTkEntry(
     settings_scroll, placeholder_text="API key", show="*")
 ncbi_api_key_entry.pack(fill="x", pady=5)
 
-_saved_config = load_config()
 ncbi_email_entry.insert(0, _saved_config.get("ncbi_email", ""))
 ncbi_api_key_entry.insert(0, _saved_config.get("ncbi_api_key", ""))
+
+
+# DATABASE-----------------------------------------------------------------
+
+
+ctk.CTkLabel(settings_scroll, text="🗄 DATABASE", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(15, 5))
+
+ctk.CTkLabel(
+    settings_scroll,
+    text="Used by \"Fetch FASTA\" (when saving to a database is enabled), "
+         "the Database tab, and Synonym search.",
+    justify="left", text_color="gray", wraplength=700
+).pack(anchor="w", pady=(0, 5))
+
+
+def choose_database():
+    path = filedialog.asksaveasfilename(
+        parent=app,
+        title="Select or create a database file",
+        defaultextension=".db",
+        filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
+        confirmoverwrite=False  # existing .db file = keep adding to it, not overwrite
+    )
+    if path:
+        db_path.set(path)
+
+
+ctk.CTkButton(
+    settings_scroll, text="Select/Create Database File", command=choose_database
+).pack(fill="x", pady=5)
+ctk.CTkLabel(settings_scroll, textvariable=db_path, text_color="gray").pack(
+    anchor="w", pady=(0, 10))
 
 
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
@@ -1300,6 +1331,7 @@ def on_closing():
     save_config({
         "ncbi_email": ncbi_email_entry.get().strip(),
         "ncbi_api_key": ncbi_api_key_entry.get().strip(),
+        "db_path": db_path.get(),
     })
 
     # ThreadPoolExecutor workers spawned by run_search() are non-daemon, so a plain exit would hang until any in-flight NCBI/BOLD calls finish. Force-kill the process instead.
