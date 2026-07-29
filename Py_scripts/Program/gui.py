@@ -19,6 +19,8 @@ from retrieval_rate_tab import build_retrieval_rate_tab
 from msa_tab import build_msa_tab
 from database_tab import build_database_tab
 from blast_tab import build_blast_tab
+from synonym_tab import build_synonym_tab
+from maps_tab import build_maps_tab
 import database
 
 df = None
@@ -41,12 +43,15 @@ app.title("NCBI / BOLD Pipeline")
 tabs = ctk.CTkTabview(app)
 tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
-Fetch_Fasta = tabs.add("Fetch FASTA")
+Home = tabs.add("Home")
 Settings = tabs.add("Settings")
+Fetch_Fasta = tabs.add("Fetch FASTA")
 Retrieval_Rate = tabs.add("Retrieval Rate")
+Synonyms = tabs.add("Synonym search")
 MSA = tabs.add("MSA")
 Database_tab = tabs.add("Database")
 BLAST = tabs.add("BLAST")
+Maps = tabs.add("Maps")
 Terminal = tabs.add("Terminal")
 
 settings_scroll = ctk.CTkScrollableFrame(Settings)
@@ -56,6 +61,13 @@ build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 build_msa_tab(MSA, app)
 build_database_tab(Database_tab, app)
 build_blast_tab(BLAST, app)
+build_synonym_tab(
+    Synonyms, app,
+    get_ncbi_credentials=lambda: (
+        ncbi_email_entry.get().strip(), ncbi_api_key_entry.get().strip()
+    )
+)
+build_maps_tab(Maps, app)
 
 
 # LEFT PANEL--------------------------------------------------------
