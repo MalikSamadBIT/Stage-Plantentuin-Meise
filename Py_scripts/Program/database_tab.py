@@ -25,6 +25,7 @@ def build_database_tab(parent, root=None):
     full_df = None
     view_df = None
     sort_state = {}
+    active_filters = []  # committed filters, applied in order (AND'ed together)
 
     # TOP BAR----------------------------------------------------------------
 
@@ -77,15 +78,21 @@ def build_database_tab(parent, root=None):
 
     filter_entry = tkinter.Entry(filter_bar)
     filter_entry.pack(side=tkinter.LEFT, padx=4, fill=tkinter.X, expand=True)
-    filter_entry.bind("<KeyRelease>", lambda event: apply_filter())
+    filter_entry.bind("<KeyRelease>", lambda event: preview_filter())
+    filter_entry.bind("<Return>", lambda event: apply_filter())
 
     tkinter.Button(
         filter_bar, text="Apply", command=lambda: apply_filter()
     ).pack(side=tkinter.LEFT, padx=4)
 
     tkinter.Button(
-        filter_bar, text="Clear", command=lambda: clear_filter()
+        filter_bar, text="Clear all", command=lambda: clear_filters()
     ).pack(side=tkinter.LEFT, padx=(4, 8))
+
+    # active (committed) filters are shown as removable chips here - each new
+    # "Apply" narrows further on top of these, instead of replacing them
+    active_filters_row = tkinter.Frame(parent, bg="#2b2b2b")
+    active_filters_row.pack(fill="x", padx=10)
 
     # TABLE----------------------------------------------------------------
 
@@ -152,6 +159,8 @@ def build_database_tab(parent, root=None):
 
         view_df = full_df
         sort_state.clear()
+        active_filters.clear()
+        rebuild_filter_chips()
 
         filter_column_menu.configure(
             values=["(all columns)"] + list(full_df.columns))
@@ -171,33 +180,97 @@ def build_database_tab(parent, root=None):
 
         return series.astype(str).str.lower().str.contains(query.lower(), na=False)
 
-    def apply_filter(*_):
-        nonlocal view_df
+    def _filter_df(df, column, query):
+        if column and column != "(all columns)":
+            return df[_column_matches(df[column], query)]
 
+        mask = pd.Series(False, index=df.index)
+        for col in df.columns:
+            mask = mask | _column_matches(df[col], query)
+        return df[mask]
+
+    def _committed_view():
+        # active_filters are AND'ed together, each one narrowing the last
+        result = full_df
+        for f in active_filters:
+            result = _filter_df(result, f["column"], f["query"])
+        return result
+
+    def _update_view(new_view_df, status_suffix=""):
+        nonlocal view_df
+        view_df = new_view_df
+        populate_tree(view_df)
+        status_label.configure(
+            text=f"{len(view_df)} of {len(full_df)} sequence(s) shown."
+                 f"{status_suffix}")
+
+    def preview_filter(*_):
+        # live-as-you-type preview, on top of the committed filters below -
+        # not added to active_filters until "Apply" (or Enter) is pressed
+        if full_df is None:
+            return
+
+        base = _committed_view()
+        query = filter_entry.get().strip()
+        column = filter_column_var.get()
+
+        if not query:
+            _update_view(base)
+        else:
+            _update_view(_filter_df(base, column, query))
+
+    def rebuild_filter_chips():
+        for widget in active_filters_row.winfo_children():
+            widget.destroy()
+
+        if not active_filters:
+            return
+
+        tkinter.Label(
+            active_filters_row, text="Active filters:", bg="#2b2b2b", fg="gray"
+        ).pack(side=tkinter.LEFT, padx=(8, 4), pady=4)
+
+        for i, f in enumerate(active_filters):
+            col_label = f["column"] if f["column"] != "(all columns)" else "any column"
+            chip = tkinter.Frame(active_filters_row, bg="#3a3a3a")
+            chip.pack(side=tkinter.LEFT, padx=3, pady=4)
+            tkinter.Label(
+                chip, text=f'{col_label}: "{f["query"]}"',
+                bg="#3a3a3a", fg="white"
+            ).pack(side=tkinter.LEFT, padx=(6, 2), pady=2)
+            tkinter.Button(
+                chip, text="x", bg="#3a3a3a", fg="white", bd=0,
+                command=lambda i=i: remove_filter(i)
+            ).pack(side=tkinter.LEFT, padx=(0, 4))
+
+    def remove_filter(index):
+        active_filters.pop(index)
+        rebuild_filter_chips()
+        _update_view(_committed_view())
+
+    def apply_filter(*_):
         if full_df is None:
             return
 
         query = filter_entry.get().strip()
         column = filter_column_var.get()
 
-        if not query:
-            view_df = full_df
-        elif column and column != "(all columns)":
-            view_df = full_df[_column_matches(full_df[column], query)]
-        else:
-            mask = pd.Series(False, index=full_df.index)
-            for col in full_df.columns:
-                mask = mask | _column_matches(full_df[col], query)
-            view_df = full_df[mask]
+        if query:
+            active_filters.append({"column": column, "query": query})
+            rebuild_filter_chips()
 
-        populate_tree(view_df)
-        status_label.configure(
-            text=f"{len(view_df)} of {len(full_df)} sequence(s) shown.")
-
-    def clear_filter():
         filter_entry.delete(0, "end")
         filter_column_var.set("(all columns)")
-        apply_filter()
+
+        _update_view(_committed_view())
+
+    def clear_filters():
+        active_filters.clear()
+        rebuild_filter_chips()
+        filter_entry.delete(0, "end")
+        filter_column_var.set("(all columns)")
+        if full_df is not None:
+            _update_view(full_df)
 
     def sort_table(col):
         nonlocal view_df
