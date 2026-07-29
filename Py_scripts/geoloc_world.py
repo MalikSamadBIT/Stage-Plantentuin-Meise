@@ -16,12 +16,12 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-SEARCH_URL = "https://waarnemingen.be/search/?q="
+SEARCH_URL = "https://observation.org/search/?q="
 
 DEFAULT_SPECIES_NAME = "Huperzia selago"
 START_DATE = "2016-07-30"
 END_DATE = "2026-07-28"
-MAP_TYPE = "grid10k"
+MAP_TYPE = "grid25k"
 
 
 def lookup_species_id(name):
@@ -48,7 +48,7 @@ def fetch_grid_data(species_id, start_date, end_date, map_type=MAP_TYPE):
     # Returns a list of dicts: cell_id, lat, lon, count, num_obs.
     interval = (end_date - start_date).days * 86400
     base_url = (
-        f"https://waarnemingen.be/species/{species_id}/maps/"
+        f"https://observation.org/species/{species_id}/maps/"
         f"?start_date={start_date}&interval={interval}&end_date={end_date}&map_type={map_type}"
     )
     json_url = base_url + "&json="
