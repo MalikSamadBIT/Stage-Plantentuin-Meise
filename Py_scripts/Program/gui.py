@@ -20,6 +20,7 @@ from msa_tab import build_msa_tab
 from database_tab import build_database_tab
 from blast_tab import build_blast_tab
 from synonym_tab import build_synonym_tab
+from maps_tab import build_maps_tab
 import database
 
 df = None
@@ -66,6 +67,7 @@ build_synonym_tab(
         ncbi_email_entry.get().strip(), ncbi_api_key_entry.get().strip()
     )
 )
+build_maps_tab(Maps, app)
 
 
 # LEFT PANEL--------------------------------------------------------

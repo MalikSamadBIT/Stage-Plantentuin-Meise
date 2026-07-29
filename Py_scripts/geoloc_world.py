@@ -44,9 +44,24 @@ def _cell_centroid(coordinates):
     return sum(lats) / len(lats), sum(lons) / len(lons)
 
 
+# The site's "interval" parameter isn't an arbitrary number of seconds - it
+# only accepts these preset lookback windows (day/week/month/6mo/1y/5y/10y),
+# same as the dropdown on the map page itself. Anything else is rejected
+# with a validation error and an empty (but still 200 OK, valid-JSON) response.
+INTERVAL_CHOICES = [86400, 604800, 2592000, 15552000, 31536000, 157680000, 315360000]
+
+
+def _interval_for(start_date, end_date):
+    requested = (end_date - start_date).days * 86400
+    for choice in INTERVAL_CHOICES:
+        if choice >= requested:
+            return choice
+    return INTERVAL_CHOICES[-1]  # cap at the largest available window (10 years)
+
+
 def fetch_grid_data(species_id, start_date, end_date, map_type=MAP_TYPE):
     # Returns a list of dicts: cell_id, lat, lon, count, num_obs.
-    interval = (end_date - start_date).days * 86400
+    interval = _interval_for(start_date, end_date)
     base_url = (
         f"https://observation.org/species/{species_id}/maps/"
         f"?start_date={start_date}&interval={interval}&end_date={end_date}&map_type={map_type}"
@@ -74,6 +89,9 @@ def fetch_grid_data(species_id, start_date, end_date, map_type=MAP_TYPE):
     except json.JSONDecodeError:
         raise RuntimeError(
             f"Non-JSON response from waarnemingen.be (first 500 chars):\n{text[:500]}")
+
+    if "errors" in data:
+        raise RuntimeError(f"observation.org rejected the request: {data['errors']}")
 
     results = []
     for feat in data.get("features", []):
