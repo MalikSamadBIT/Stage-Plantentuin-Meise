@@ -1,4 +1,6 @@
+import logging
 import os
+import threading
 import tkinter
 from tkinter import filedialog, ttk
 
@@ -6,6 +8,11 @@ import customtkinter as ctk
 import pandas as pd
 
 import database
+
+try:
+    from sqlite3_to_mysql import SQLite3toMySQL
+except ImportError:
+    SQLite3toMySQL = None
 
 # table dropdown -> (SQL source, columns to select or None for "*")
 # sequence is excluded from the Sequences columns - it's long and would
@@ -32,6 +39,18 @@ def build_database_tab(parent, root=None, db_path=None):
 
     if db_path is None:
         db_path = ctk.StringVar()
+
+    sub_tabs = ctk.CTkTabview(parent)
+    sub_tabs.pack(fill="both", expand=True)
+
+    view_tab = sub_tabs.add("View Database")
+    transfer_tab = sub_tabs.add("Transfer Database")
+
+    _build_view_tab(view_tab, root, db_path)
+    _build_transfer_tab(transfer_tab, root, db_path)
+
+
+def _build_view_tab(parent, root, db_path):
     full_df = None
     view_df = None
     sort_state = {}
@@ -357,3 +376,197 @@ def build_database_tab(parent, root=None, db_path=None):
 
     if db_path.get():
         load_data()
+
+
+# TRANSFER TAB (SQLite -> MySQL, via the sqlite3-to-mysql package)-----------
+
+def _build_transfer_tab(parent, root, db_path):
+    """
+    Lets the user copy the currently-selected SQLite database into a MySQL
+    database, using the sqlite3-to-mysql package (SQLite3toMySQL class).
+    root is unused here, kept for consistency with the other build_*_tab
+    functions.
+    """
+
+    ctk.CTkLabel(
+        parent, text="Transfer the SQLite database to MySQL",
+        font=("Arial", 16, "bold")
+    ).pack(anchor="w", padx=10, pady=(10, 2))
+
+    ctk.CTkLabel(
+        parent,
+        text="Copies every table from the SQLite database selected in the "
+             "Settings tab into a MySQL database, using the sqlite3-to-mysql "
+             "tool.",
+        text_color="gray", justify="left", wraplength=700
+    ).pack(anchor="w", padx=10, pady=(0, 10))
+
+    if SQLite3toMySQL is None:
+        ctk.CTkLabel(
+            parent,
+            text="The \"sqlite3-to-mysql\" package is not installed. "
+                 "Install it first:",
+            text_color="orange", justify="left", wraplength=700
+        ).pack(anchor="w", padx=10, pady=(0, 2))
+        ctk.CTkLabel(
+            parent, text="pip install sqlite3-to-mysql==2.6.0",
+            font=("Consolas", 12), justify="left"
+        ).pack(anchor="w", padx=10, pady=(0, 10))
+        return
+
+    ctk.CTkLabel(parent, text="Source (SQLite):").pack(
+        anchor="w", padx=10, pady=(0, 0))
+    ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
+        anchor="w", padx=10, pady=(0, 10))
+
+    # MYSQL CONNECTION FIELDS----------------------------------------------
+
+    fields_frame = ctk.CTkFrame(parent, fg_color="transparent")
+    fields_frame.pack(fill="x", padx=10)
+
+    def labeled_entry(row, label, default="", show=None, width=250):
+        ctk.CTkLabel(fields_frame, text=label).grid(
+            row=row, column=0, sticky="w", padx=(0, 10), pady=5)
+        entry = ctk.CTkEntry(fields_frame, width=width, show=show)
+        if default:
+            entry.insert(0, default)
+        entry.grid(row=row, column=1, sticky="w", pady=5)
+        return entry
+
+    fields_frame.grid_columnconfigure(1, weight=0)
+
+    host_entry = labeled_entry(0, "MySQL host")
+    host_entry.insert(0, "localhost")
+    port_entry = labeled_entry(1, "MySQL port")
+    port_entry.insert(0, "3306")
+    user_entry = labeled_entry(2, "MySQL user")
+    password_entry = labeled_entry(3, "MySQL password", show="*")
+    database_entry = labeled_entry(4, "MySQL database name")
+    chunk_entry = labeled_entry(5, "Chunk size (rows per batch, optional)")
+
+    truncate_var = ctk.BooleanVar(value=False)
+    ctk.CTkCheckBox(
+        parent, text="Truncate existing tables in MySQL before transfer",
+        variable=truncate_var
+    ).pack(anchor="w", padx=10, pady=(5, 10))
+
+    status_label = ctk.CTkLabel(
+        parent, text="Fill in the MySQL connection details, then transfer.",
+        text_color="gray"
+    )
+    status_label.pack(anchor="w", padx=10, pady=(0, 5))
+
+    log_box = ctk.CTkTextbox(parent, height=180, state="disabled")
+    log_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    def append_log(message):
+        def do_append():
+            log_box.configure(state="normal")
+            log_box.insert("end", message + "\n")
+            log_box.see("end")
+            log_box.configure(state="disabled")
+        parent.after(0, do_append)
+
+    class _LogBoxHandler(logging.Handler):
+        def emit(self, record):
+            append_log(self.format(record))
+
+    def run_transfer(sqlite_file, host, port, user, password, mysql_db,
+                      chunk, truncate):
+        logger = logging.getLogger("SQLite3toMySQL")
+        handler = _LogBoxHandler()
+        handler.setFormatter(logging.Formatter(
+            fmt="%(asctime)s %(levelname)-8s %(message)s",
+            datefmt="%H:%M:%S"
+        ))
+        logger.addHandler(handler)
+
+        try:
+            converter = SQLite3toMySQL(
+                sqlite_file=sqlite_file,
+                mysql_user=user,
+                mysql_password=password or None,
+                mysql_host=host,
+                mysql_port=port,
+                mysql_database=mysql_db,
+                chunk=chunk,
+                mysql_truncate_tables=truncate,
+                quiet=True,
+            )
+            converter.transfer()
+        except Exception as e:
+            append_log(f"ERROR: {e}")
+            parent.after(
+                0, lambda: status_label.configure(
+                    text=f"Transfer failed: {e}", text_color="red"))
+        else:
+            parent.after(
+                0, lambda: status_label.configure(
+                    text="Transfer completed successfully.",
+                    text_color="green"))
+        finally:
+            logger.removeHandler(handler)
+            parent.after(0, lambda: transfer_button.configure(state="normal"))
+
+    def start_transfer():
+        sqlite_file = db_path.get()
+        if not sqlite_file:
+            status_label.configure(
+                text="No database selected - choose one in the Settings tab.",
+                text_color="red")
+            return
+
+        if not os.path.isfile(sqlite_file):
+            status_label.configure(
+                text="The selected SQLite database file does not exist.",
+                text_color="red")
+            return
+
+        host = host_entry.get().strip() or "localhost"
+        user = user_entry.get().strip()
+        password = password_entry.get()
+        mysql_db = database_entry.get().strip()
+
+        if not user or not mysql_db:
+            status_label.configure(
+                text="MySQL user and database name are required.",
+                text_color="red")
+            return
+
+        try:
+            port = int(port_entry.get().strip() or "3306")
+        except ValueError:
+            status_label.configure(
+                text="MySQL port must be a number.", text_color="red")
+            return
+
+        chunk_text = chunk_entry.get().strip()
+        chunk = None
+        if chunk_text:
+            try:
+                chunk = int(chunk_text)
+            except ValueError:
+                status_label.configure(
+                    text="Chunk size must be a number.", text_color="red")
+                return
+
+        log_box.configure(state="normal")
+        log_box.delete("1.0", "end")
+        log_box.configure(state="disabled")
+
+        status_label.configure(
+            text="Transferring - this can take a while for large databases...",
+            text_color="gray")
+        transfer_button.configure(state="disabled")
+
+        threading.Thread(
+            target=run_transfer,
+            args=(sqlite_file, host, port, user, password, mysql_db,
+                  chunk, truncate_var.get()),
+            daemon=True
+        ).start()
+
+    transfer_button = ctk.CTkButton(
+        parent, text="Transfer to MySQL", command=start_transfer
+    )
+    transfer_button.pack(anchor="w", padx=10, pady=(0, 10))
