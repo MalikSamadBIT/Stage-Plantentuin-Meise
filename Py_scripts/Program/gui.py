@@ -74,7 +74,7 @@ build_synonym_tab(
     ),
     db_path=db_path
 )
-build_maps_tab(Maps, app)
+build_maps_tab(Maps, app, db_path=db_path)
 
 
 # LEFT PANEL--------------------------------------------------------

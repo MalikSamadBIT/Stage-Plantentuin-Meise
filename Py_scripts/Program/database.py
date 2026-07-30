@@ -226,6 +226,28 @@ def add_synonyms(conn, canonical_name, synonyms):
     return species_id
 
 
+def count_sequences_by_marker(conn, species_name):
+    """
+    Returns [(marker, count), ...] for the given species name, matched
+    case-insensitively against either its canonical name or any synonym/
+    queried_as name on file - so it works regardless of which name variant
+    the sequences were originally fetched under.
+    """
+    rows = conn.execute("""
+        SELECT marker, COUNT(*) AS count
+        FROM sequences_view
+        WHERE LOWER(species) = LOWER(?)
+           OR LOWER(queried_as) = LOWER(?)
+           OR LOWER(species) IN (
+                SELECT LOWER(species) FROM synonyms_view WHERE LOWER(name) = LOWER(?)
+           )
+        GROUP BY marker
+        ORDER BY marker
+    """, (species_name, species_name, species_name)).fetchall()
+
+    return [(row["marker"], row["count"]) for row in rows]
+
+
 def extract_sequence(fasta_text):
     lines = fasta_text.strip().splitlines()
     return "".join(lines[1:])

@@ -4,6 +4,7 @@ import customtkinter as ctk
 import tkintermapview
 from tkcalendar import DateEntry
 
+import database
 from geoloc_client import SITES, fetch_grid_data, lookup_species_id
 
 DEFAULT_SITE = "Belgium (waarnemingen.be)"
@@ -12,12 +13,19 @@ DEFAULT_START_DATE = "2016-02-29"
 DEFAULT_END_DATE = "2026-07-28"
 
 
-def build_maps_tab(parent, root=None):
+def build_maps_tab(parent, root=None, db_path=None):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window (unused here, kept for consistency with the
         other build_*_tab functions).
+    db_path: shared ctk.StringVar holding the database file chosen in the
+        Settings tab - used to look up how many sequences are already on
+        file for the searched species. Falls back to a private (always
+        empty) one if this tab is ever used standalone.
     """
+
+    if db_path is None:
+        db_path = ctk.StringVar()
 
     controls = ctk.CTkFrame(parent)
     controls.pack(fill="x", padx=10, pady=10)
@@ -50,6 +58,9 @@ def build_maps_tab(parent, root=None):
         parent, text="Choose a species and date range, then click Load.")
     status_label.pack(anchor="w", padx=10, pady=(0, 5))
 
+    db_status_label = ctk.CTkLabel(parent, text="", text_color="gray")
+    db_status_label.pack(anchor="w", padx=10, pady=(0, 5))
+
     map_widget = tkintermapview.TkinterMapView(parent, corner_radius=0)
     map_widget.pack(fill="both", expand=True, padx=10, pady=(0, 10))
     map_widget.set_position(52.1326, 5.2913)
@@ -61,7 +72,31 @@ def build_maps_tab(parent, root=None):
     # `result`, and the main thread polls it via parent.after.
     result = {}
 
+    def check_database(species_name):
+        if not db_path.get():
+            result["db_status"] = (
+                "No database selected (choose one in the Settings tab) "
+                "to see sequences already on file for this species."
+            )
+            return
+
+        try:
+            conn = database.connect(db_path.get())
+            counts = database.count_sequences_by_marker(conn, species_name)
+            conn.close()
+        except Exception as e:
+            result["db_status"] = f"Database check failed: {e}"
+            return
+
+        if counts:
+            parts = ", ".join(f"{marker}: {count}" for marker, count in counts)
+            result["db_status"] = f"Sequences in database - {parts}"
+        else:
+            result["db_status"] = "No sequences in database for this species yet."
+
     def load_data(site_key, species_name, start_date, end_date):
+        check_database(species_name)
+
         try:
             site = SITES[site_key]
             species_id = lookup_species_id(species_name, site["base_url"])
@@ -78,6 +113,7 @@ def build_maps_tab(parent, root=None):
             cells = result.pop("cells")
             status_label.configure(
                 text=f"Loaded {len(cells)} grid cells.", text_color="white")
+            db_status_label.configure(text=result.pop("db_status", ""))
             load_button.configure(state="normal", text="Load")
             map_widget.delete_all_marker()
             for cell in cells:
@@ -94,6 +130,7 @@ def build_maps_tab(parent, root=None):
             error = result.pop("error")
             status_label.configure(
                 text=f"Failed to load data: {error}", text_color="red")
+            db_status_label.configure(text=result.pop("db_status", ""))
             load_button.configure(state="normal", text="Load")
             return
         parent.after(200, poll)
@@ -118,6 +155,7 @@ def build_maps_tab(parent, root=None):
             text=f"Looking up '{species_name}' on {site_key}...",
             text_color="white"
         )
+        db_status_label.configure(text="Checking database...")
         threading.Thread(
             target=load_data,
             args=(site_key, species_name, start_date, end_date),
