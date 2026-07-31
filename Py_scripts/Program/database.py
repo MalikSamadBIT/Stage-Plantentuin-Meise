@@ -1,9 +1,75 @@
 import sqlite3
 from datetime import datetime, timezone
 
+import customtkinter as ctk
+import pandas as pd
+
+try:
+    import mysql.connector
+except ImportError:
+    mysql = None
+
+
+class DatabaseConfig:
+    """
+    Describes which database backend the program is currently pointed at -
+    a local SQLite file, or a MySQL server - and is shared across tabs the
+    same way a plain `db_path` StringVar used to be: `display_var` carries a
+    one-line human-readable summary, and tabs `trace_add` it the same way
+    they used to trace `db_path`, so switching backend/target in Settings
+    still auto-reloads every tab.
+    """
+
+    def __init__(self):
+        self.backend = "sqlite"
+        self.sqlite_path = ""
+        self.mysql_host = "localhost"
+        self.mysql_port = 3306
+        self.mysql_user = ""
+        self.mysql_password = ""
+        self.mysql_database = ""
+        self.display_var = ctk.StringVar(value="")
+
+    def trace_add(self, mode, callback):
+        return self.display_var.trace_add(mode, callback)
+
+    def is_configured(self):
+        if self.backend == "mysql":
+            return bool(
+                self.mysql_host and self.mysql_user and self.mysql_database)
+        return bool(self.sqlite_path)
+
+    def refresh_display(self):
+        if self.backend == "mysql":
+            if self.is_configured():
+                text = (f"MySQL: {self.mysql_user}@{self.mysql_host}:"
+                        f"{self.mysql_port}/{self.mysql_database}")
+            else:
+                text = "MySQL (not configured yet - set it up in Settings)"
+        else:
+            text = self.sqlite_path
+        self.display_var.set(text)
+
+    def set_sqlite(self, path):
+        self.backend = "sqlite"
+        self.sqlite_path = path
+        self.refresh_display()
+
+    def set_mysql(self, host, port, user, password, database):
+        self.backend = "mysql"
+        self.mysql_host = host
+        self.mysql_port = port
+        self.mysql_user = user
+        self.mysql_password = password
+        self.mysql_database = database
+        self.refresh_display()
+
+
 # runs/species/synonyms are safe to create unconditionally - only
 # "sequences" might already exist from before species/synonyms/queried_as
 # were introduced, so it's handled separately (see _migrate_sequences_table).
+# SQLite-only - a fresh MySQL database is always created with the current
+# schema (see BASE_SCHEMA_MYSQL), so there's nothing to migrate there.
 BASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +152,173 @@ JOIN species ON species.id = sequences.species_id;
 # column so existing "SELECT ... FROM sequences" readers (database_tab.py,
 # blast_tab.py) don't need to know about the join.
 
+# MySQL equivalents of the schema above. Differences from the SQLite version:
+# AUTO_INCREMENT instead of AUTOINCREMENT, CREATE OR REPLACE VIEW instead of
+# CREATE VIEW IF NOT EXISTS (MySQL has no "IF NOT EXISTS" for views - REPLACE
+# is an idempotent no-op after the first run), and bounded VARCHAR sizes on
+# the columns that sit inside a UNIQUE key or foreign key (canonical_name,
+# marker, accession) since MySQL/InnoDB can't index unbounded TEXT/BLOB
+# columns without an explicit prefix length.
+BASE_SCHEMA_MYSQL = """
+CREATE TABLE IF NOT EXISTS runs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    started_at VARCHAR(64) NOT NULL,
+    output_dir TEXT,
+    source VARCHAR(64)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS species (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    canonical_name VARCHAR(255) NOT NULL UNIQUE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS synonyms (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    species_id INT NOT NULL,
+    language VARCHAR(32),
+    name VARCHAR(255) NOT NULL,
+    UNIQUE KEY uniq_synonym (species_id, language, name),
+    FOREIGN KEY (species_id) REFERENCES species(id)
+) ENGINE=InnoDB;
+
+CREATE OR REPLACE VIEW synonyms_view AS
+SELECT
+    synonyms.id,
+    species.canonical_name AS species,
+    synonyms.language,
+    synonyms.name
+FROM synonyms
+JOIN species ON species.id = synonyms.species_id;
+"""
+
+SEQUENCES_SCHEMA_MYSQL = """
+CREATE TABLE IF NOT EXISTS sequences (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    run_id INT NOT NULL,
+    species_id INT NOT NULL,
+    marker VARCHAR(64) NOT NULL,
+    source VARCHAR(32),
+    accession VARCHAR(255),
+    organism TEXT,
+    title TEXT,
+    length INT,
+    geo_loc TEXT,
+    lat_lon TEXT,
+    collection_date TEXT,
+    voucher TEXT,
+    score REAL,
+    queried_as TEXT,
+    sequence LONGTEXT NOT NULL,
+    fetched_at VARCHAR(64) NOT NULL,
+    UNIQUE KEY uniq_sequence (species_id, marker, accession),
+    FOREIGN KEY (run_id) REFERENCES runs(id),
+    FOREIGN KEY (species_id) REFERENCES species(id)
+) ENGINE=InnoDB;
+
+CREATE OR REPLACE VIEW sequences_view AS
+SELECT
+    sequences.id,
+    sequences.run_id,
+    species.canonical_name AS species,
+    sequences.marker,
+    sequences.source,
+    sequences.accession,
+    sequences.organism,
+    sequences.title,
+    sequences.length,
+    sequences.geo_loc,
+    sequences.lat_lon,
+    sequences.collection_date,
+    sequences.voucher,
+    sequences.score,
+    sequences.queried_as,
+    sequences.sequence,
+    sequences.fetched_at
+FROM sequences
+JOIN species ON species.id = sequences.species_id;
+"""
+
+
+class SQLiteConn:
+    """Thin wrapper so callers use the same surface regardless of backend."""
+
+    backend = "sqlite"
+
+    def __init__(self, path):
+        self._conn = sqlite3.connect(path)
+        self._conn.row_factory = sqlite3.Row
+
+    def execute(self, sql, params=()):
+        return self._conn.execute(sql, params)
+
+    def executemany(self, sql, seq_of_params):
+        return self._conn.executemany(sql, seq_of_params)
+
+    def executescript(self, sql):
+        return self._conn.executescript(sql)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
+class MySQLConn:
+    """
+    Same surface as SQLiteConn (execute/executemany/executescript/commit/
+    rollback/close, "?" placeholders, dict-style row access, cur.lastrowid)
+    so the rest of the codebase doesn't need to know which backend it's
+    talking to.
+    """
+
+    backend = "mysql"
+
+    def __init__(self, host, port, user, password, database):
+        if mysql is None:
+            raise RuntimeError(
+                "The mysql-connector-python package is required to use a "
+                "MySQL database. Install it with: "
+                "pip install mysql-connector-python"
+            )
+        self._conn = mysql.connector.connect(
+            host=host, port=port, user=user, password=password,
+            database=database
+        )
+
+    def execute(self, sql, params=()):
+        cur = self._conn.cursor(dictionary=True, buffered=True)
+        cur.execute(sql.replace("?", "%s"), params)
+        return cur
+
+    def executemany(self, sql, seq_of_params):
+        cur = self._conn.cursor()
+        cur.executemany(sql.replace("?", "%s"), list(seq_of_params))
+        return cur
+
+    def executescript(self, sql):
+        # mysql-connector has no executescript() - split on ";" and run each
+        # statement in turn (fine here since the schema strings above are
+        # ours, not arbitrary user SQL with embedded semicolons in strings).
+        cur = self._conn.cursor()
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                cur.execute(statement)
+        self._conn.commit()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
 
 def _sequences_needs_migration(conn):
     # a pre-species/synonyms database has "species" (plain text) but no
@@ -163,9 +396,8 @@ def _migrate_sequences_table(conn):
         raise
 
 
-def connect(db_path):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+def _connect_sqlite(path):
+    conn = SQLiteConn(path)
 
     conn.executescript(BASE_SCHEMA)
 
@@ -175,6 +407,40 @@ def connect(db_path):
     conn.executescript(SEQUENCES_SCHEMA)
 
     return conn
+
+
+def _connect_mysql(config):
+    conn = MySQLConn(
+        config.mysql_host, config.mysql_port, config.mysql_user,
+        config.mysql_password, config.mysql_database
+    )
+
+    conn.executescript(BASE_SCHEMA_MYSQL)
+    conn.executescript(SEQUENCES_SCHEMA_MYSQL)
+
+    return conn
+
+
+def connect(source):
+    """
+    source: either a DatabaseConfig instance (the shared program-wide
+    backend choice made in the Settings tab - SQLite or MySQL), or a plain
+    SQLite file path string for callers that manage their own file
+    selection independently of the Settings tab (e.g. blast_tab.py).
+    """
+    if isinstance(source, DatabaseConfig):
+        if source.backend == "mysql":
+            return _connect_mysql(source)
+        return _connect_sqlite(source.sqlite_path)
+
+    return _connect_sqlite(source)
+
+
+def _insert_ignore_into(conn, table):
+    # SQLite and MySQL spell "insert, but silently skip on a UNIQUE
+    # conflict" differently
+    return f"INSERT IGNORE INTO {table}" if conn.backend == "mysql" \
+        else f"INSERT OR IGNORE INTO {table}"
 
 
 def create_run(conn, output_dir, source):
@@ -195,7 +461,8 @@ def get_or_create_species(conn, canonical_name):
         return row["id"]
 
     cur = conn.execute(
-        "INSERT INTO species (canonical_name) VALUES (?)", (canonical_name,)
+        f"{_insert_ignore_into(conn, 'species')} (canonical_name) VALUES (?)",
+        (canonical_name,)
     )
     conn.commit()
     return cur.lastrowid
@@ -217,8 +484,8 @@ def add_synonyms(conn, canonical_name, synonyms):
 
     if rows:
         conn.executemany(
-            "INSERT OR IGNORE INTO synonyms (species_id, language, name) "
-            "VALUES (?, ?, ?)",
+            f"{_insert_ignore_into(conn, 'synonyms')} "
+            "(species_id, language, name) VALUES (?, ?, ?)",
             rows
         )
         conn.commit()
@@ -254,6 +521,9 @@ def extract_sequence(fasta_text):
 
 
 def insert_sequences(conn, run_id, results):
+    if not results:
+        return 0
+
     fetched_at = datetime.now(timezone.utc).isoformat()
 
     species_id_cache = {}
@@ -273,13 +543,25 @@ def insert_sequences(conn, run_id, results):
             extract_sequence(fasta_text), fetched_at
         ))
 
-    cur = conn.executemany("""
-        INSERT OR IGNORE INTO sequences (
-            run_id, species_id, marker, source, accession, organism, title,
-            length, geo_loc, lat_lon, collection_date, voucher, score,
-            queried_as, sequence, fetched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, rows)
+    cur = conn.executemany(
+        f"{_insert_ignore_into(conn, 'sequences')} ("
+        "run_id, species_id, marker, source, accession, organism, title, "
+        "length, geo_loc, lat_lon, collection_date, voucher, score, "
+        "queried_as, sequence, fetched_at"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows
+    )
     conn.commit()
 
     return cur.rowcount
+
+
+def query_df(conn, sql, params=()):
+    """
+    Runs a SELECT and returns the result as a pandas DataFrame, regardless
+    of backend. Doesn't use pandas.read_sql_query directly - that only
+    officially supports a sqlite3.Connection or a SQLAlchemy connectable,
+    not an arbitrary DBAPI2 connection like mysql-connector's.
+    """
+    rows = conn.execute(sql, params).fetchall()
+    return pd.DataFrame([dict(row) for row in rows])

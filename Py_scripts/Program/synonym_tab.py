@@ -30,21 +30,21 @@ MAX_CANDIDATES = 10
 TOP_N = 1
 
 
-def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_path=None):
+def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_config=None):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
     get_ncbi_credentials: callable -> (email, api_key), read from the
         Settings tab at search time (NCBI sequence search needs it).
-    db_path: shared ctk.StringVar holding the database file chosen in the
-        Settings tab. Falls back to a private one if this tab is ever used
+    db_config: shared database.DatabaseConfig chosen in the Settings tab.
+        Falls back to a private (unconfigured) one if this tab is ever used
         standalone.
     """
 
     csv_path = ctk.StringVar()
     no_matches_path = ctk.StringVar()
-    if db_path is None:
-        db_path = ctk.StringVar()
+    if db_config is None:
+        db_config = database.DatabaseConfig()
 
     last_synonym_results = {}
     last_sequence_results = []
@@ -300,7 +300,7 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_path=None
     save_synonyms_button.pack(side="left")
 
     ctk.CTkLabel(
-        scroll, textvariable=db_path, text_color="gray"
+        scroll, textvariable=db_config.display_var, text_color="gray"
     ).pack(anchor="w", padx=10, pady=(0, 10))
 
     def save_synonyms_to_database():
@@ -312,13 +312,13 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_path=None
             )
             return
 
-        if not db_path.get():
+        if not db_config.is_configured():
             status_label.configure(
-                text="Select a database file in the Settings tab first.", text_color="red")
+                text="Select a database in the Settings tab first.", text_color="red")
             return
 
         try:
-            conn = database.connect(db_path.get())
+            conn = database.connect(db_config)
             synonym_count = 0
             for species, synonyms in last_synonym_results.items():
                 database.add_synonyms(conn, species, synonyms)
@@ -332,7 +332,7 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_path=None
         status_label.configure(
             text=f"Saved {len(last_synonym_results)} species and "
                  f"{synonym_count} synonym name(s), linked to their "
-                 f"canonical species, to {os.path.basename(db_path.get())}.",
+                 f"canonical species, to {db_config.display_var.get()}.",
             text_color="white"
         )
 
@@ -546,13 +546,13 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_path=None
             )
             return
 
-        if not db_path.get():
+        if not db_config.is_configured():
             seq_status_label.configure(
-                text="Select a database file in the Settings tab first.", text_color="red")
+                text="Select a database in the Settings tab first.", text_color="red")
             return
 
         try:
-            conn = database.connect(db_path.get())
+            conn = database.connect(db_config)
             run_id = database.create_run(
                 conn, output_dir="", source="Synonym search")
 
@@ -569,7 +569,7 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_path=None
 
         seq_status_label.configure(
             text=f"Saved {inserted} new sequence(s) (and synonyms) to "
-                 f"{os.path.basename(db_path.get())}.",
+                 f"{db_config.display_var.get()}.",
             text_color="white"
         )
 

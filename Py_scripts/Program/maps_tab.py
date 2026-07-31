@@ -13,19 +13,19 @@ DEFAULT_START_DATE = "2016-02-29"
 DEFAULT_END_DATE = "2026-07-28"
 
 
-def build_maps_tab(parent, root=None, db_path=None):
+def build_maps_tab(parent, root=None, db_config=None):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window (unused here, kept for consistency with the
         other build_*_tab functions).
-    db_path: shared ctk.StringVar holding the database file chosen in the
-        Settings tab - used to look up how many sequences are already on
-        file for the searched species. Falls back to a private (always
-        empty) one if this tab is ever used standalone.
+    db_config: shared database.DatabaseConfig chosen in the Settings tab -
+        used to look up how many sequences are already on file for the
+        searched species. Falls back to a private (unconfigured) one if
+        this tab is ever used standalone.
     """
 
-    if db_path is None:
-        db_path = ctk.StringVar()
+    if db_config is None:
+        db_config = database.DatabaseConfig()
 
     controls = ctk.CTkFrame(parent)
     controls.pack(fill="x", padx=10, pady=10)
@@ -73,7 +73,7 @@ def build_maps_tab(parent, root=None, db_path=None):
     result = {}
 
     def check_database(species_name):
-        if not db_path.get():
+        if not db_config.is_configured():
             result["db_status"] = (
                 "No database selected (choose one in the Settings tab) "
                 "to see sequences already on file for this species."
@@ -81,7 +81,7 @@ def build_maps_tab(parent, root=None, db_path=None):
             return
 
         try:
-            conn = database.connect(db_path.get())
+            conn = database.connect(db_config)
             counts = database.count_sequences_by_marker(conn, species_name)
             conn.close()
         except Exception as e:

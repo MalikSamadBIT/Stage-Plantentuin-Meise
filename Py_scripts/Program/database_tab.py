@@ -28,17 +28,17 @@ TABLE_OPTIONS = {
 }
 
 
-def build_database_tab(parent, root=None, db_path=None):
+def build_database_tab(parent, root=None, db_config=None):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
-    db_path: shared ctk.StringVar holding the database file chosen in the
-        Settings tab. Falls back to a private one if this tab is ever used
+    db_config: shared database.DatabaseConfig chosen in the Settings tab.
+        Falls back to a private (unconfigured) one if this tab is ever used
         standalone.
     """
 
-    if db_path is None:
-        db_path = ctk.StringVar()
+    if db_config is None:
+        db_config = database.DatabaseConfig()
 
     sub_tabs = ctk.CTkTabview(parent)
     sub_tabs.pack(fill="both", expand=True)
@@ -46,11 +46,11 @@ def build_database_tab(parent, root=None, db_path=None):
     view_tab = sub_tabs.add("View Database")
     transfer_tab = sub_tabs.add("Transfer Database")
 
-    _build_view_tab(view_tab, root, db_path)
-    _build_transfer_tab(transfer_tab, root, db_path)
+    _build_view_tab(view_tab, root, db_config)
+    _build_transfer_tab(transfer_tab, root, db_config)
 
 
-def _build_view_tab(parent, root, db_path):
+def _build_view_tab(parent, root, db_config):
     full_df = None
     view_df = None
     sort_state = {}
@@ -79,7 +79,7 @@ def _build_view_tab(parent, root, db_path):
     ).pack(side="left")
 
     ctk.CTkLabel(
-        parent, textvariable=db_path, text_color="gray"
+        parent, textvariable=db_config.display_var, text_color="gray"
     ).pack(anchor="w", padx=10, pady=(0, 5))
 
     status_label = ctk.CTkLabel(
@@ -170,7 +170,7 @@ def _build_view_tab(parent, root, db_path):
     def load_data():
         nonlocal full_df, view_df
 
-        if not db_path.get():
+        if not db_config.is_configured():
             status_label.configure(
                 text="No database selected - choose one in the Settings tab.")
             return
@@ -179,9 +179,9 @@ def _build_view_tab(parent, root, db_path):
         select_clause = ", ".join(columns) if columns else "*"
 
         try:
-            conn = database.connect(db_path.get())
-            full_df = pd.read_sql_query(
-                f"SELECT {select_clause} FROM {source}", conn
+            conn = database.connect(db_config)
+            full_df = database.query_df(
+                conn, f"SELECT {select_clause} FROM {source}"
             )
             conn.close()
         except Exception as e:
@@ -347,7 +347,7 @@ def _build_view_tab(parent, root, db_path):
             return
 
         try:
-            conn = database.connect(db_path.get())
+            conn = database.connect(db_config)
             placeholders = ",".join("?" for _ in accessions)
             rows = conn.execute(
                 f"SELECT species, marker, accession, sequence FROM sequences_view "
@@ -368,22 +368,26 @@ def _build_view_tab(parent, root, db_path):
             text=f"Exported {len(rows)} sequence(s) to {os.path.basename(path)}.")
 
     # REACT TO THE SHARED DATABASE CHOICE---------------------------------
-    # db_path is shared with the Settings tab (and Fetch FASTA/Synonym
-    # search) - reload automatically whenever it's changed there, and load
-    # immediately if a database was already chosen before this tab was built.
+    # db_config is shared with the Settings tab (and Fetch FASTA/Synonym
+    # search) - reload automatically whenever the backend/target changes
+    # there, and load immediately if a database was already configured
+    # before this tab was built.
 
-    db_path.trace_add("write", lambda *_: load_data())
+    db_config.trace_add("write", lambda *_: load_data())
 
-    if db_path.get():
+    if db_config.is_configured():
         load_data()
 
 
 # TRANSFER TAB (SQLite -> MySQL, via the sqlite3-to-mysql package)-----------
 
-def _build_transfer_tab(parent, root, db_path):
+def _build_transfer_tab(parent, root, db_config):
     """
-    Lets the user copy the currently-selected SQLite database into a MySQL
-    database, using the sqlite3-to-mysql package (SQLite3toMySQL class).
+    Lets the user copy a SQLite database into a MySQL database, using the
+    sqlite3-to-mysql package (SQLite3toMySQL class). Always transfers from
+    the SQLite file remembered in Settings (db_config.sqlite_path) - not
+    necessarily whichever backend is currently active, since sqlite3-to-mysql
+    only ever migrates from SQLite.
     root is unused here, kept for consistency with the other build_*_tab
     functions.
     """
@@ -416,8 +420,20 @@ def _build_transfer_tab(parent, root, db_path):
 
     ctk.CTkLabel(parent, text="Source (SQLite):").pack(
         anchor="w", padx=10, pady=(0, 0))
-    ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
-        anchor="w", padx=10, pady=(0, 10))
+
+    transfer_source_var = ctk.StringVar()
+
+    def _refresh_transfer_source(*_):
+        transfer_source_var.set(
+            db_config.sqlite_path or
+            "No SQLite file configured yet - select one in Settings.")
+
+    db_config.trace_add("write", _refresh_transfer_source)
+    _refresh_transfer_source()
+
+    ctk.CTkLabel(
+        parent, textvariable=transfer_source_var, text_color="gray"
+    ).pack(anchor="w", padx=10, pady=(0, 10))
 
     # MYSQL CONNECTION FIELDS----------------------------------------------
 
@@ -435,13 +451,17 @@ def _build_transfer_tab(parent, root, db_path):
 
     fields_frame.grid_columnconfigure(1, weight=0)
 
-    host_entry = labeled_entry(0, "MySQL host")
-    host_entry.insert(0, "localhost")
-    port_entry = labeled_entry(1, "MySQL port")
-    port_entry.insert(0, "3306")
-    user_entry = labeled_entry(2, "MySQL user")
+    # prefilled from the Settings tab's MySQL fields, if any are set there -
+    # still a separate/independent destination, just a convenient starting
+    # point (password is never carried over, same as in Settings)
+    host_entry = labeled_entry(
+        0, "MySQL host", default=db_config.mysql_host or "localhost")
+    port_entry = labeled_entry(
+        1, "MySQL port", default=str(db_config.mysql_port or 3306))
+    user_entry = labeled_entry(2, "MySQL user", default=db_config.mysql_user)
     password_entry = labeled_entry(3, "MySQL password", show="*")
-    database_entry = labeled_entry(4, "MySQL database name")
+    database_entry = labeled_entry(
+        4, "MySQL database name", default=db_config.mysql_database)
     chunk_entry = labeled_entry(5, "Chunk size (rows per batch, optional)")
 
     truncate_var = ctk.BooleanVar(value=False)
@@ -509,10 +529,11 @@ def _build_transfer_tab(parent, root, db_path):
             parent.after(0, lambda: transfer_button.configure(state="normal"))
 
     def start_transfer():
-        sqlite_file = db_path.get()
+        sqlite_file = db_config.sqlite_path
         if not sqlite_file:
             status_label.configure(
-                text="No database selected - choose one in the Settings tab.",
+                text="No SQLite file configured - select one in the "
+                     "Settings tab.",
                 text_color="red")
             return
 

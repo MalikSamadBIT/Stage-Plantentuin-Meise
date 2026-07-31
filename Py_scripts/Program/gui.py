@@ -41,8 +41,18 @@ app.geometry("1250x820")
 app.title("NCBI / BOLD Pipeline")
 
 # shared across the whole program (Fetch FASTA saving, Database tab,
-# Synonym search) - chosen once in the Settings tab, see below
-db_path = ctk.StringVar(value=_saved_config.get("db_path", ""))
+# Synonym search, Maps) - backend (SQLite file or MySQL server) is chosen
+# once in the Settings tab, see below. Falls back to the old "db_path" key
+# for configs saved before the MySQL option existed.
+db_config = database.DatabaseConfig()
+db_config.backend = _saved_config.get("db_backend", "sqlite")
+db_config.sqlite_path = _saved_config.get(
+    "db_sqlite_path", _saved_config.get("db_path", ""))
+db_config.mysql_host = _saved_config.get("db_mysql_host", "localhost")
+db_config.mysql_port = _saved_config.get("db_mysql_port", 3306)
+db_config.mysql_user = _saved_config.get("db_mysql_user", "")
+db_config.mysql_database = _saved_config.get("db_mysql_database", "")
+db_config.refresh_display()
 
 
 # TABS------------------------------------------------------------
@@ -65,16 +75,16 @@ settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
 build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
 build_msa_tab(MSA, app)
-build_database_tab(Database_tab, app, db_path=db_path)
+build_database_tab(Database_tab, app, db_config=db_config)
 build_blast_tab(BLAST, app)
 build_synonym_tab(
     Synonyms, app,
     get_ncbi_credentials=lambda: (
         ncbi_email_entry.get().strip(), ncbi_api_key_entry.get().strip()
     ),
-    db_path=db_path
+    db_config=db_config
 )
-build_maps_tab(Maps, app, db_path=db_path)
+build_maps_tab(Maps, app, db_config=db_config)
 
 
 # LEFT PANEL--------------------------------------------------------
@@ -449,16 +459,16 @@ save_database_var = ctk.BooleanVar(value=False)
 
 database_checkbox = ctk.CTkCheckBox(
     scroll,
-    text="Also save results to a local database (SQLite)",
+    text="Also save results to the database (SQLite or MySQL)",
     variable=save_database_var
 )
 database_checkbox.pack(anchor="w", pady=(10, 2))
 
 ctk.CTkLabel(
-    scroll, textvariable=db_path, text_color="gray"
+    scroll, textvariable=db_config.display_var, text_color="gray"
 ).pack(anchor="w", pady=(0, 2))
 ctk.CTkLabel(
-    scroll, text="(select/create the database file in the Settings tab)",
+    scroll, text="(choose/configure the database backend in the Settings tab)",
     text_color="gray", font=("Arial", 11)
 ).pack(anchor="w", pady=(0, 10))
 
@@ -493,9 +503,25 @@ ctk.CTkLabel(settings_scroll, text="🗄 DATABASE", font=(
 ctk.CTkLabel(
     settings_scroll,
     text="Used by \"Fetch FASTA\" (when saving to a database is enabled), "
-         "the Database tab, and Synonym search.",
+         "the Database tab, Synonym search, and Maps. Pick a local SQLite "
+         "file or a MySQL server - only one backend is active at a time.",
     justify="left", text_color="gray", wraplength=700
 ).pack(anchor="w", pady=(0, 5))
+
+db_backend_var = ctk.StringVar(
+    value="MySQL" if db_config.backend == "mysql" else "SQLite")
+
+sqlite_frame = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+mysql_frame = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+
+db_status_label = ctk.CTkLabel(settings_scroll, text_color="gray")
+
+
+def refresh_db_status():
+    db_status_label.configure(
+        text=f"Active: {db_config.display_var.get() or '(none)'}",
+        text_color="gray"
+    )
 
 
 def choose_database():
@@ -507,14 +533,113 @@ def choose_database():
         confirmoverwrite=False  # existing .db file = keep adding to it, not overwrite
     )
     if path:
-        db_path.set(path)
+        db_config.set_sqlite(path)
 
 
 ctk.CTkButton(
-    settings_scroll, text="Select/Create Database File", command=choose_database
+    sqlite_frame, text="Select/Create Database File", command=choose_database
 ).pack(fill="x", pady=5)
-ctk.CTkLabel(settings_scroll, textvariable=db_path, text_color="gray").pack(
-    anchor="w", pady=(0, 10))
+ctk.CTkLabel(
+    sqlite_frame, textvariable=db_config.display_var, text_color="gray"
+).pack(anchor="w", pady=(0, 5))
+
+
+ctk.CTkLabel(mysql_frame, text="MySQL host").pack(anchor="w")
+mysql_host_entry = ctk.CTkEntry(mysql_frame)
+mysql_host_entry.insert(0, db_config.mysql_host)
+mysql_host_entry.pack(fill="x", pady=(0, 5))
+
+ctk.CTkLabel(mysql_frame, text="MySQL port").pack(anchor="w")
+mysql_port_entry = ctk.CTkEntry(mysql_frame)
+mysql_port_entry.insert(0, str(db_config.mysql_port))
+mysql_port_entry.pack(fill="x", pady=(0, 5))
+
+ctk.CTkLabel(mysql_frame, text="MySQL user").pack(anchor="w")
+mysql_user_entry = ctk.CTkEntry(mysql_frame)
+mysql_user_entry.insert(0, db_config.mysql_user)
+mysql_user_entry.pack(fill="x", pady=(0, 5))
+
+ctk.CTkLabel(mysql_frame, text="MySQL password (not saved - re-enter each "
+             "session)").pack(anchor="w")
+mysql_password_entry = ctk.CTkEntry(mysql_frame, show="*")
+mysql_password_entry.pack(fill="x", pady=(0, 5))
+
+ctk.CTkLabel(mysql_frame, text="MySQL database name").pack(anchor="w")
+mysql_database_entry = ctk.CTkEntry(mysql_frame)
+mysql_database_entry.insert(0, db_config.mysql_database)
+mysql_database_entry.pack(fill="x", pady=(0, 5))
+
+
+def connect_mysql():
+    host = mysql_host_entry.get().strip() or "localhost"
+    user = mysql_user_entry.get().strip()
+    password = mysql_password_entry.get()
+    database_name = mysql_database_entry.get().strip()
+
+    if not user or not database_name:
+        db_status_label.configure(
+            text="MySQL user and database name are required.",
+            text_color="red")
+        return
+
+    try:
+        port = int(mysql_port_entry.get().strip() or "3306")
+    except ValueError:
+        db_status_label.configure(
+            text="MySQL port must be a number.", text_color="red")
+        return
+
+    # validate against a throwaway config first - a bad attempt shouldn't
+    # switch the active backend out from under a working setup
+    test_config = database.DatabaseConfig()
+    test_config.set_mysql(host, port, user, password, database_name)
+
+    try:
+        conn = database.connect(test_config)
+        conn.close()
+    except Exception as e:
+        db_status_label.configure(
+            text=f"Connection failed: {e}", text_color="red")
+        return
+
+    db_config.set_mysql(host, port, user, password, database_name)
+    db_status_label.configure(
+        text=f"Connected - active: {db_config.display_var.get()}",
+        text_color="green"
+    )
+
+
+ctk.CTkButton(
+    mysql_frame, text="Connect", command=connect_mysql
+).pack(fill="x", pady=(0, 5))
+
+
+def on_backend_change(choice):
+    if choice == "MySQL":
+        sqlite_frame.pack_forget()
+        mysql_frame.pack(fill="x", pady=(5, 0), before=db_status_label)
+    else:
+        mysql_frame.pack_forget()
+        sqlite_frame.pack(fill="x", pady=(5, 0), before=db_status_label)
+        # cheap/local - reactivate immediately, unlike MySQL which needs an
+        # explicit Connect to validate credentials first
+        db_config.set_sqlite(db_config.sqlite_path)
+
+
+ctk.CTkSegmentedButton(
+    settings_scroll, values=["SQLite", "MySQL"], variable=db_backend_var,
+    command=on_backend_change
+).pack(fill="x", pady=(0, 10))
+
+db_status_label.pack(anchor="w", pady=(5, 10))
+
+if db_config.backend == "mysql":
+    mysql_frame.pack(fill="x", pady=(5, 0), before=db_status_label)
+else:
+    sqlite_frame.pack(fill="x", pady=(5, 0), before=db_status_label)
+
+refresh_db_status()
+db_config.trace_add("write", lambda *_: refresh_db_status())
 
 
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
@@ -1246,13 +1371,14 @@ def run_search():
         zero_species_path = os.path.join(output_dir.get(), "zero_species.csv")
         write_zero_species_csv(zero_species_path, retrieval_data)
 
-    if save_database_var.get() and db_path.get():
+    if save_database_var.get() and db_config.is_configured():
         try:
-            conn = database.connect(db_path.get())
+            conn = database.connect(db_config)
             run_id = database.create_run(conn, output_dir.get(), source)
             inserted = database.insert_sequences(conn, run_id, results)
             conn.close()
-            log(f"Saved {inserted} new sequence(s) to database: {db_path.get()}")
+            log(f"Saved {inserted} new sequence(s) to database: "
+                f"{db_config.display_var.get()}")
         except Exception as e:
             log(f"Database save failed: {e}")
 
@@ -1331,7 +1457,13 @@ def on_closing():
     save_config({
         "ncbi_email": ncbi_email_entry.get().strip(),
         "ncbi_api_key": ncbi_api_key_entry.get().strip(),
-        "db_path": db_path.get(),
+        # MySQL password is intentionally never saved - re-entered each session
+        "db_backend": db_config.backend,
+        "db_sqlite_path": db_config.sqlite_path,
+        "db_mysql_host": db_config.mysql_host,
+        "db_mysql_port": db_config.mysql_port,
+        "db_mysql_user": db_config.mysql_user,
+        "db_mysql_database": db_config.mysql_database,
     })
 
     # ThreadPoolExecutor workers spawned by run_search() are non-daemon, so a plain exit would hang until any in-flight NCBI/BOLD calls finish. Force-kill the process instead.
