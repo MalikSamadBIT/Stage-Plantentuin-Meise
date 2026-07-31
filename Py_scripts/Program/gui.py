@@ -594,24 +594,52 @@ def connect_mysql():
     test_config = database.DatabaseConfig()
     test_config.set_mysql(host, port, user, password, database_name)
 
-    try:
-        conn = database.connect(test_config)
-        conn.close()
-    except Exception as e:
-        db_status_label.configure(
-            text=f"Connection failed: {e}", text_color="red")
-        return
+    # the actual network connect happens off the main thread - against a
+    # remote/firewalled host this can take a long time to time out, and
+    # mysql.connector.connect() blocks whichever thread calls it
+    mysql_connect_button.configure(state="disabled")
+    db_status_label.configure(
+        text=f"Connecting to {host}:{port}...", text_color="gray")
 
+    def do_connect():
+        try:
+            conn = database.connect(test_config)
+            conn.close()
+        except Exception as e:
+            # "as e" is deleted when the except block ends, so it has to be
+            # captured as a plain string before the deferred lambda runs
+            error_text = str(e)
+            settings_scroll.after(
+                0, lambda: connect_mysql_failed(error_text))
+            return
+        settings_scroll.after(
+            0,
+            lambda: connect_mysql_succeeded(
+                host, port, user, password, database_name)
+        )
+
+    threading.Thread(target=do_connect, daemon=True).start()
+
+
+def connect_mysql_failed(error):
+    mysql_connect_button.configure(state="normal")
+    db_status_label.configure(
+        text=f"Connection failed: {error}", text_color="red")
+
+
+def connect_mysql_succeeded(host, port, user, password, database_name):
     db_config.set_mysql(host, port, user, password, database_name)
+    mysql_connect_button.configure(state="normal")
     db_status_label.configure(
         text=f"Connected - active: {db_config.display_var.get()}",
         text_color="green"
     )
 
 
-ctk.CTkButton(
+mysql_connect_button = ctk.CTkButton(
     mysql_frame, text="Connect", command=connect_mysql
-).pack(fill="x", pady=(0, 5))
+)
+mysql_connect_button.pack(fill="x", pady=(0, 5))
 
 
 def on_backend_change(choice):
