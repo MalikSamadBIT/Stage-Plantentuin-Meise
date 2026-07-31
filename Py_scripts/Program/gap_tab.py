@@ -23,17 +23,30 @@ STATUS_COLORS = {
 }
 
 
-def build_gap_tab(parent, root=None, db_config=None):
+def build_gap_tab(parent, root=None, db_config=None, report_items=None):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
     db_config: shared database.DatabaseConfig chosen in the Settings tab.
         Falls back to a private (unconfigured) one if this tab is ever used
         standalone.
+    report_items: shared list that Retrieval Rate/MSA/Synonym search push
+        "add to report" snapshots into (see their build_*_tab functions) -
+        this tab lists and manages them, and (eventually) assembles the
+        final report from them. Falls back to a private (empty) one if
+        this tab is ever used standalone.
     """
 
     if db_config is None:
         db_config = database.DatabaseConfig()
+    if report_items is None:
+        report_items = []
+
+    sub_tabs = ctk.CTkTabview(parent)
+    sub_tabs.pack(fill="both", expand=True)
+
+    analysis_tab = sub_tabs.add("Gap Analysis")
+    contents_tab = sub_tabs.add("Report Contents")
 
     csv_path = ctk.StringVar()
     no_matches_path = ctk.StringVar()
@@ -42,10 +55,10 @@ def build_gap_tab(parent, root=None, db_config=None):
 
     # SPECIES INPUT-----------------------------------------------------
 
-    ctk.CTkLabel(parent, text="🎯 SPECIES TO CHECK", font=(
+    ctk.CTkLabel(analysis_tab, text="🎯 SPECIES TO CHECK", font=(
         "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
 
-    input_button_row = ctk.CTkFrame(parent, fg_color="transparent")
+    input_button_row = ctk.CTkFrame(analysis_tab, fg_color="transparent")
     input_button_row.pack(fill="x", padx=10, pady=(0, 2))
 
     def choose_csv():
@@ -75,7 +88,7 @@ def build_gap_tab(parent, root=None, db_config=None):
         input_button_row, text="Select no_matches.txt", command=choose_no_matches
     ).pack(side="left", fill="x", expand=True)
 
-    input_path_label = ctk.CTkLabel(parent, text="", text_color="gray")
+    input_path_label = ctk.CTkLabel(analysis_tab, text="", text_color="gray")
     input_path_label.pack(anchor="w", padx=10, pady=(0, 5))
 
     def _update_input_path_label(*_):
@@ -84,9 +97,9 @@ def build_gap_tab(parent, root=None, db_config=None):
     csv_path.trace_add("write", _update_input_path_label)
     no_matches_path.trace_add("write", _update_input_path_label)
 
-    ctk.CTkLabel(parent, text="Or type species names (comma separated)").pack(
+    ctk.CTkLabel(analysis_tab, text="Or type species names (comma separated)").pack(
         anchor="w", padx=10)
-    species_textbox = ctk.CTkTextbox(parent, height=50)
+    species_textbox = ctk.CTkTextbox(analysis_tab, height=50)
     species_textbox.pack(fill="x", padx=10, pady=(0, 10))
 
     def get_species_list():
@@ -119,10 +132,10 @@ def build_gap_tab(parent, root=None, db_config=None):
 
     # OPTIONS-------------------------------------------------------------
 
-    ctk.CTkLabel(parent, text="⚙ OPTIONS", font=(
+    ctk.CTkLabel(analysis_tab, text="⚙ OPTIONS", font=(
         "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(5, 2))
 
-    options_row = ctk.CTkFrame(parent, fg_color="transparent")
+    options_row = ctk.CTkFrame(analysis_tab, fg_color="transparent")
     options_row.pack(fill="x", padx=10, pady=(0, 5))
 
     ctk.CTkLabel(options_row, text="Site:").pack(side="left", padx=(0, 4))
@@ -141,10 +154,10 @@ def build_gap_tab(parent, root=None, db_config=None):
     end_date_entry.pack(side="left", padx=(0, 12))
     end_date_entry.set_date(datetime.date.today())
 
-    ctk.CTkLabel(parent, text="Target markers", font=(
+    ctk.CTkLabel(analysis_tab, text="Target markers", font=(
         "Arial", 14, "bold")).pack(anchor="w", padx=10, pady=(5, 0))
 
-    marker_row = ctk.CTkFrame(parent, fg_color="transparent")
+    marker_row = ctk.CTkFrame(analysis_tab, fg_color="transparent")
     marker_row.pack(fill="x", padx=10, pady=(0, 5))
 
     marker_vars = {}
@@ -154,7 +167,7 @@ def build_gap_tab(parent, root=None, db_config=None):
         ctk.CTkCheckBox(marker_row, text=m, variable=v).pack(
             side="left", padx=(0, 8))
 
-    extra_markers_row = ctk.CTkFrame(parent, fg_color="transparent")
+    extra_markers_row = ctk.CTkFrame(analysis_tab, fg_color="transparent")
     extra_markers_row.pack(fill="x", padx=10, pady=(0, 5))
 
     ctk.CTkLabel(extra_markers_row, text="Extra markers (comma separated):").pack(
@@ -162,15 +175,15 @@ def build_gap_tab(parent, root=None, db_config=None):
     extra_markers_entry = ctk.CTkEntry(extra_markers_row)
     extra_markers_entry.pack(side="left", fill="x", expand=True)
 
-    run_button = ctk.CTkButton(parent, text="Run Gap Analysis")
+    run_button = ctk.CTkButton(analysis_tab, text="Run Gap Analysis")
     run_button.pack(fill="x", padx=10, pady=(5, 2))
 
-    status_label = ctk.CTkLabel(parent, text="", text_color="gray")
+    status_label = ctk.CTkLabel(analysis_tab, text="", text_color="gray")
     status_label.pack(anchor="w", padx=10, pady=(0, 5))
 
     # RESULTS TABLE---------------------------------------------------------
 
-    table_top_bar = ctk.CTkFrame(parent, fg_color="transparent")
+    table_top_bar = ctk.CTkFrame(analysis_tab, fg_color="transparent")
     table_top_bar.pack(fill="x", padx=10, pady=(5, 5))
 
     ctk.CTkButton(
@@ -191,7 +204,7 @@ def build_gap_tab(parent, root=None, db_config=None):
         font=("Arial", 12, "bold")
     )
 
-    table_frame = tkinter.Frame(parent)
+    table_frame = tkinter.Frame(analysis_tab)
     table_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
     table_vsb = ttk.Scrollbar(table_frame, orient="vertical")
@@ -278,6 +291,7 @@ def build_gap_tab(parent, root=None, db_config=None):
                 text=f"Done - {len(rows)} species checked.{note}",
                 text_color="white"
             )
+            refresh_items_list()
 
         parent.after(0, finish)
 
@@ -350,3 +364,80 @@ def build_gap_tab(parent, root=None, db_config=None):
             text=f"Exported {len(last_rows)} row(s) to {os.path.basename(path)}.",
             text_color="white"
         )
+
+    # REPORT CONTENTS TAB----------------------------------------------------
+    # Lists whatever's been added from the Retrieval Rate/MSA/Synonym search
+    # tabs' "Add to Report" buttons, plus the gap analysis table above
+    # (always included, not removable). Assembling these into an actual
+    # exported report is a later step - this just manages what's queued up.
+
+    ctk.CTkLabel(contents_tab, text="📎 REPORT CONTENTS", font=(
+        "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
+
+    ctk.CTkLabel(
+        contents_tab,
+        text="The gap analysis table is always included. Add optional "
+             "sections from the Retrieval Rate, MSA, and Synonym search "
+             "tabs using their \"Add to Report\" buttons - they'll show up "
+             "here.",
+        justify="left", text_color="gray", wraplength=700
+    ).pack(anchor="w", padx=10, pady=(0, 10))
+
+    items_frame = ctk.CTkScrollableFrame(contents_tab)
+    items_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    def remove_item(index):
+        report_items.pop(index)
+        refresh_items_list()
+
+    def refresh_items_list():
+        for widget in items_frame.winfo_children():
+            widget.destroy()
+
+        gap_row = ctk.CTkFrame(items_frame)
+        gap_row.pack(fill="x", pady=(0, 5))
+        ctk.CTkLabel(
+            gap_row, text="Gap analysis", font=("Arial", 13, "bold")
+        ).pack(side="left", padx=10, pady=8)
+        ctk.CTkLabel(
+            gap_row,
+            text=f"{len(last_rows)} species checked" if last_rows else "Not run yet",
+            text_color="gray"
+        ).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(
+            gap_row, text="Always included", text_color="gray"
+        ).pack(side="right", padx=10)
+
+        if not report_items:
+            ctk.CTkLabel(
+                items_frame, text="No optional sections added yet.",
+                text_color="gray"
+            ).pack(anchor="w", pady=10)
+            return
+
+        for i, item in enumerate(report_items):
+            row = ctk.CTkFrame(items_frame)
+            row.pack(fill="x", pady=5)
+
+            text_col = ctk.CTkFrame(row, fg_color="transparent")
+            text_col.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+            ctk.CTkLabel(
+                text_col, text=item["title"], font=("Arial", 13, "bold")
+            ).pack(anchor="w")
+            ctk.CTkLabel(
+                text_col, text=item.get("subtitle", ""), text_color="gray"
+            ).pack(anchor="w")
+
+            ctk.CTkButton(
+                row, text="Remove", width=80,
+                command=lambda i=i: remove_item(i)
+            ).pack(side="right", padx=10)
+
+    # report_items is shared and mutated by other tabs, so re-scan it every
+    # time this sub-tab is switched to, not just once at startup
+    sub_tabs.configure(
+        command=lambda: refresh_items_list()
+        if sub_tabs.get() == "Report Contents" else None
+    )
+
+    refresh_items_list()

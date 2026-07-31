@@ -1,3 +1,4 @@
+import io
 import os
 import tkinter
 from tkinter import filedialog, ttk
@@ -21,13 +22,20 @@ def get_marker_count_columns(df):
     ]
 
 
-def build_retrieval_rate_tab(parent, get_data, root=None):
+def build_retrieval_rate_tab(parent, get_data, root=None, report_items=None):
     """
     parent: the CTkTabview tab frame to build the widgets into.
     get_data: zero-arg callable returning the current retrieval_data
               DataFrame (or None, before any run has completed).
     root: the main app window, used as the save-dialog's parent.
+    report_items: shared list the Gap Report tab reads from - "Add to
+        Report" pushes a snapshot of the currently displayed chart here.
+        Falls back to a private (unread) one if this tab is ever used
+        standalone.
     """
+
+    if report_items is None:
+        report_items = []
 
     def get_entry_value(entry):
         value = entry.get()
@@ -39,6 +47,8 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
     view_df = None
     sort_state = {}
     loaded_df = None  # set by "Load CSV"; overrides get_data() until cleared
+    last_plot_type = None  # updated in Plots() - "Add to Report" needs to
+    # know what's currently drawn, since the Table view has no chart to add
 
     def populate_tree(df_view):
         tree.delete(*tree.get_children())
@@ -115,6 +125,7 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
         populate_tree(view_df)
 
     def Plots(selected_plot):
+        nonlocal last_plot_type
         df_plot = loaded_df if loaded_df is not None else get_data()
 
         if df_plot is None or df_plot.empty:
@@ -189,6 +200,7 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
             render_table(df_plot)
         else:
             canvas_container.tkraise()
+            last_plot_type = selected_plot
 
         resize_grip.lift()
 
@@ -233,6 +245,26 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
         if file_path:
             fig.savefig(file_path, dpi=fig.dpi, facecolor=fig.get_facecolor())
 
+    def add_to_report():
+        if last_plot_type is None:
+            status_label.configure(
+                text="Display a chart first (the Table view has no chart "
+                     "to add)."
+            )
+            return
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=fig.dpi, facecolor=fig.get_facecolor())
+
+        report_items.append({
+            "type": "retrieval_chart",
+            "title": f"Retrieval rate - {last_plot_type}",
+            "subtitle": "Added from Retrieval Rate tab",
+            "image_bytes": buf.getvalue(),
+        })
+        status_label.configure(
+            text=f"Added the \"{last_plot_type}\" chart to the report.")
+
     plots = ["Barplot", "Piechart", "Table", "NCBI/BOLD"]
 
     options_frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -266,6 +298,10 @@ def build_retrieval_rate_tab(parent, get_data, root=None):
     save_button = ctk.CTkButton(
         button_frame, text="Save Plot", command=save_plot)
     save_button.pack(side=tkinter.LEFT, padx=5)
+
+    add_to_report_button = ctk.CTkButton(
+        button_frame, text="Add to Report", command=add_to_report)
+    add_to_report_button.pack(side=tkinter.LEFT, padx=5)
 
     status_label = ctk.CTkLabel(parent, text="", text_color="gray")
     status_label.pack(pady=(0, 5))

@@ -30,7 +30,10 @@ MAX_CANDIDATES = 10
 TOP_N = 1
 
 
-def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_config=None):
+def build_synonym_tab(
+    parent, root=None, get_ncbi_credentials=None, db_config=None,
+    report_items=None
+):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
@@ -39,12 +42,17 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_config=No
     db_config: shared database.DatabaseConfig chosen in the Settings tab.
         Falls back to a private (unconfigured) one if this tab is ever used
         standalone.
+    report_items: shared list the Gap Report tab reads from - "Add to
+        Report" pushes the current synonym search results here. Falls back
+        to a private (unread) one if this tab is ever used standalone.
     """
 
     csv_path = ctk.StringVar()
     no_matches_path = ctk.StringVar()
     if db_config is None:
         db_config = database.DatabaseConfig()
+    if report_items is None:
+        report_items = []
 
     last_synonym_results = {}
     last_sequence_results = []
@@ -297,7 +305,11 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_config=No
 
     save_synonyms_button = ctk.CTkButton(
         db_row, text="Save Synonyms to Database")
-    save_synonyms_button.pack(side="left")
+    save_synonyms_button.pack(side="left", padx=(0, 8))
+
+    add_synonyms_to_report_button = ctk.CTkButton(
+        db_row, text="Add to Report")
+    add_synonyms_to_report_button.pack(side="left")
 
     ctk.CTkLabel(
         scroll, textvariable=db_config.display_var, text_color="gray"
@@ -337,6 +349,30 @@ def build_synonym_tab(parent, root=None, get_ncbi_credentials=None, db_config=No
         )
 
     save_synonyms_button.configure(command=save_synonyms_to_database)
+
+    def add_synonyms_to_report():
+        if not last_synonym_results:
+            status_label.configure(
+                text="No synonym search results to add yet - run a "
+                     "synonym search first.",
+                text_color="red"
+            )
+            return
+
+        report_items.append({
+            "type": "synonyms",
+            "title": "Synonyms",
+            "subtitle": f"{len(last_synonym_results)} species - added from "
+                        "Synonym search tab",
+            "data": dict(last_synonym_results),
+        })
+        status_label.configure(
+            text=f"Added synonyms for {len(last_synonym_results)} species "
+                 "to the report.",
+            text_color="white"
+        )
+
+    add_synonyms_to_report_button.configure(command=add_synonyms_to_report)
 
     # MARKERS-------------------------------------------------------------
 

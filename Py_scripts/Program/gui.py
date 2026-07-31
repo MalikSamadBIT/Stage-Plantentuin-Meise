@@ -55,6 +55,10 @@ db_config.mysql_user = _saved_config.get("db_mysql_user", "")
 db_config.mysql_database = _saved_config.get("db_mysql_database", "")
 db_config.refresh_display()
 
+# "Add to Report" (Retrieval Rate/MSA/Synonym search) pushes snapshots here;
+# the Gap Report tab's "Report Contents" sub-tab lists/manages them.
+report_items = []
+
 
 # TABS------------------------------------------------------------
 tabs = ctk.CTkTabview(app)
@@ -75,8 +79,9 @@ Terminal = tabs.add("Terminal")
 settings_scroll = ctk.CTkScrollableFrame(Settings)
 settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
-build_retrieval_rate_tab(Retrieval_Rate, lambda: retrieval_data, app)
-build_msa_tab(MSA, app)
+build_retrieval_rate_tab(
+    Retrieval_Rate, lambda: retrieval_data, app, report_items=report_items)
+build_msa_tab(MSA, app, report_items=report_items)
 build_database_tab(Database_tab, app, db_config=db_config)
 build_blast_tab(BLAST, app)
 build_synonym_tab(
@@ -84,10 +89,11 @@ build_synonym_tab(
     get_ncbi_credentials=lambda: (
         ncbi_email_entry.get().strip(), ncbi_api_key_entry.get().strip()
     ),
-    db_config=db_config
+    db_config=db_config,
+    report_items=report_items
 )
 build_maps_tab(Maps, app, db_config=db_config)
-build_gap_tab(Gap_Report, app, db_config=db_config)
+build_gap_tab(Gap_Report, app, db_config=db_config, report_items=report_items)
 
 
 # LEFT PANEL--------------------------------------------------------
@@ -597,9 +603,6 @@ def connect_mysql():
     test_config = database.DatabaseConfig()
     test_config.set_mysql(host, port, user, password, database_name)
 
-    # the actual network connect happens off the main thread - against a
-    # remote/firewalled host this can take a long time to time out, and
-    # mysql.connector.connect() blocks whichever thread calls it
     mysql_connect_button.configure(state="disabled")
     db_status_label.configure(
         text=f"Connecting to {host}:{port}...", text_color="gray")
@@ -609,8 +612,7 @@ def connect_mysql():
             conn = database.connect(test_config)
             conn.close()
         except Exception as e:
-            # "as e" is deleted when the except block ends, so it has to be
-            # captured as a plain string before the deferred lambda runs
+            # "as e" is deleted when the except block ends
             error_text = str(e)
             settings_scroll.after(
                 0, lambda: connect_mysql_failed(error_text))

@@ -135,11 +135,18 @@ def compute_msa_scores(fasta_path, selected=None):
     return scores
 
 
-def build_msa_tab(parent, root=None):
+def build_msa_tab(parent, root=None, report_items=None):
     """
     parent: the CTkTabview tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
+    report_items: shared list the Gap Report tab reads from - "Add to
+        Report" (on the MSA Results tab) pushes the currently shown
+        alignment image plus its scores (if computed) here. Falls back to
+        a private (unread) one if this tab is ever used standalone.
     """
+
+    if report_items is None:
+        report_items = []
 
     sub_tabs = ctk.CTkTabview(parent)
     sub_tabs.pack(fill="both", expand=True)
@@ -156,6 +163,7 @@ def build_msa_tab(parent, root=None):
     score_file_path = ctk.StringVar()
     merge_output_path = ctk.StringVar()
     merge_input_paths = []
+    last_scores = None  # set by "Compute Scores" - read by "Add to Report"
 
     def load():
         path = filedialog.askopenfilename(
@@ -358,6 +366,30 @@ def build_msa_tab(parent, root=None):
 
         ctk.CTkLabel(frame, text="", image=msa_image).pack(pady=10)
 
+        top_bar = ctk.CTkFrame(MSA_results, fg_color="transparent")
+        top_bar.place(relx=0.5, rely=0.02, anchor="n")
+
+        results_status_label = ctk.CTkLabel(top_bar, text="", text_color="gray")
+
+        def add_to_report():
+            title_source = file_path.get() or score_file_path.get()
+            title = f"MSA - {os.path.basename(title_source)}" \
+                if title_source else "MSA result"
+
+            report_items.append({
+                "type": "msa",
+                "title": title,
+                "subtitle": "Added from MSA tab",
+                "image_path": image_path,
+                "scores": dict(last_scores) if last_scores else None,
+            })
+            results_status_label.configure(text="Added to report.")
+
+        ctk.CTkButton(
+            top_bar, text="Add to Report", command=add_to_report
+        ).pack(side="left", padx=(0, 8))
+        results_status_label.pack(side="left")
+
     # SCORE--------------------------------------------------------------
 
     def load_score_file():
@@ -421,6 +453,8 @@ def build_msa_tab(parent, root=None):
             return
 
         def finish():
+            nonlocal last_scores
+            last_scores = scores
             score_status_label.configure(text="Done.")
             score_button.configure(state="normal")
             show_scores(scores)
