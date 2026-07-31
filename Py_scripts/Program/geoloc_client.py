@@ -62,8 +62,22 @@ def _interval_for(start_date, end_date):
     return INTERVAL_CHOICES[-1]  # cap at the largest available window (10 years)
 
 
-def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
-    # Returns a list of dicts: cell_id, lat, lon, count, num_obs.
+def _new_browser_page(p):
+    # Anubis's anti-bot check flags a default headless launch outright
+    # (navigator.webdriver reveals it as automated) - masking that flag lets
+    # its JS challenge pass normally, same as any real browser.
+    browser = p.chromium.launch(
+        headless=True, args=["--disable-blink-features=AutomationControlled"]
+    )
+    context = browser.new_context(user_agent=USER_AGENT)
+    page = context.new_page()
+    page.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+    return browser, page
+
+
+def _fetch_grid_features(page, base_url, species_id, start_date, end_date, map_type):
     interval = _interval_for(start_date, end_date)
     map_url = (
         f"{base_url}/species/{species_id}/maps/"
@@ -71,22 +85,13 @@ def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
     )
     json_url = map_url + "&json="
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True, args=["--disable-blink-features=AutomationControlled"]
-        )
-        context = browser.new_context(user_agent=USER_AGENT)
-        page = context.new_page()
-        page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
-
-        # Visit the normal map page first so Anubis's JS challenge runs and
-        # sets the auth cookie; then the JSON URL request reuses that cookie.
-        page.goto(map_url, wait_until="networkidle")
-        response = page.goto(json_url, wait_until="networkidle")
-        text = response.text()
-        browser.close()
+    # Visit the normal map page first so Anubis's JS challenge runs and sets
+    # the auth cookie; then the JSON URL request reuses that cookie. Reused
+    # across species in fetch_observation_counts_batch, so this cookie only
+    # needs to be earned once per browser session, not once per species.
+    page.goto(map_url, wait_until="networkidle")
+    response = page.goto(json_url, wait_until="networkidle")
+    text = response.text()
 
     try:
         data = json.loads(text)
@@ -97,8 +102,19 @@ def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
     if "errors" in data:
         raise RuntimeError(f"{base_url} rejected the request: {data['errors']}")
 
+    return data.get("features", [])
+
+
+def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
+    # Returns a list of dicts: cell_id, lat, lon, count, num_obs.
+    with sync_playwright() as p:
+        browser, page = _new_browser_page(p)
+        features = _fetch_grid_features(
+            page, base_url, species_id, start_date, end_date, map_type)
+        browser.close()
+
     results = []
-    for feat in data.get("features", []):
+    for feat in features:
         props = feat["properties"]
         lat, lon = _cell_centroid(feat["geometry"]["coordinates"])
         results.append(
@@ -110,4 +126,43 @@ def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
                 "num_obs": props["num_obs"],
             }
         )
+    return results
+
+
+def fetch_observation_counts_batch(
+    base_url, species_names, start_date, end_date, map_type, progress=None
+):
+    """
+    Returns {species_name: total_observations}, with None for any species
+    that couldn't be resolved/fetched (name not found, network error).
+
+    Reuses a single browser/page across every species instead of relaunching
+    one per species like fetch_grid_data does - browser startup + the Anubis
+    pass is the dominant cost otherwise, and needs to happen only once per
+    batch run instead of once per species.
+
+    progress: optional callable(completed, total, species_name), called
+    after each species (found or not).
+    """
+    results = {}
+    total = len(species_names)
+
+    with sync_playwright() as p:
+        browser, page = _new_browser_page(p)
+
+        for i, name in enumerate(species_names):
+            try:
+                species_id = lookup_species_id(name, base_url)
+                features = _fetch_grid_features(
+                    page, base_url, species_id, start_date, end_date, map_type)
+                results[name] = sum(
+                    feat["properties"]["num_obs"] for feat in features)
+            except Exception:
+                results[name] = None
+
+            if progress:
+                progress(i + 1, total, name)
+
+        browser.close()
+
     return results
