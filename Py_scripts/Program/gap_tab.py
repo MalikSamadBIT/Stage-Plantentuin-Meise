@@ -10,6 +10,7 @@ from tkcalendar import DateEntry
 
 import database
 import gap_analysis
+import report_pdf
 from geoloc_client import SITES, fetch_observation_counts_batch
 from output import parse_no_matches_table
 
@@ -368,8 +369,7 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
     # REPORT CONTENTS TAB----------------------------------------------------
     # Lists whatever's been added from the Retrieval Rate/MSA/Synonym search
     # tabs' "Add to Report" buttons, plus the gap analysis table above
-    # (always included, not removable). Assembling these into an actual
-    # exported report is a later step - this just manages what's queued up.
+    # (always included, not removable), and exports the whole thing as a PDF.
 
     ctk.CTkLabel(contents_tab, text="📎 REPORT CONTENTS", font=(
         "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
@@ -382,6 +382,53 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
              "here.",
         justify="left", text_color="gray", wraplength=700
     ).pack(anchor="w", padx=10, pady=(0, 10))
+
+    export_row = ctk.CTkFrame(contents_tab, fg_color="transparent")
+    export_row.pack(fill="x", padx=10, pady=(0, 5))
+
+    ctk.CTkButton(
+        export_row, text="Export to PDF...", command=lambda: export_pdf()
+    ).pack(side="left")
+
+    export_status_label = ctk.CTkLabel(export_row, text="", text_color="gray")
+    export_status_label.pack(side="left", padx=(10, 0))
+
+    def export_pdf():
+        if not last_rows:
+            export_status_label.configure(
+                text="Run a gap analysis first - it's the report's required "
+                     "first section.",
+                text_color="red"
+            )
+            return
+
+        path = filedialog.asksaveasfilename(
+            parent=root, title="Export report to PDF",
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+
+        meta = {
+            "site": site_var.get(),
+            "start_date": start_date_entry.get_date(),
+            "end_date": end_date_entry.get_date(),
+        }
+
+        try:
+            report_pdf.build_report_pdf(
+                path, last_rows, last_target_markers, meta, report_items)
+        except Exception as e:
+            export_status_label.configure(
+                text=f"Export failed: {e}", text_color="red")
+            return
+
+        export_status_label.configure(
+            text=f"Exported to {os.path.basename(path)} "
+                 f"({1 + len(report_items)} section(s)).",
+            text_color="white"
+        )
 
     items_frame = ctk.CTkScrollableFrame(contents_tab)
     items_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
