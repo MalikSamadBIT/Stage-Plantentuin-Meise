@@ -21,6 +21,7 @@ from database_tab import build_database_tab
 from blast_tab import build_blast_tab
 from synonym_tab import build_synonym_tab
 from maps_tab import build_maps_tab
+from gap_tab import build_gap_tab
 import database
 
 df = None
@@ -68,6 +69,7 @@ MSA = tabs.add("MSA")
 Database_tab = tabs.add("Database")
 BLAST = tabs.add("BLAST")
 Maps = tabs.add("Maps")
+Gap_Report = tabs.add("Gap Report")
 Terminal = tabs.add("Terminal")
 
 settings_scroll = ctk.CTkScrollableFrame(Settings)
@@ -85,6 +87,7 @@ build_synonym_tab(
     db_config=db_config
 )
 build_maps_tab(Maps, app, db_config=db_config)
+build_gap_tab(Gap_Report, app, db_config=db_config)
 
 
 # LEFT PANEL--------------------------------------------------------

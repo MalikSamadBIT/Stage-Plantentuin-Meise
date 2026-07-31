@@ -23,12 +23,19 @@ def compute_status(marker_counts, target_markers):
     return "complete"
 
 
-def build_gap_rows(species_names, observation_counts, db_path, target_markers):
+def build_gap_rows(species_names, observation_counts, db_config, target_markers):
     """
+    db_config: shared database.DatabaseConfig chosen in the Settings tab -
+        pass None/unconfigured to skip the sequence-coverage lookup entirely
+        (every row becomes "no_data").
+
     Returns a list of row dicts species, observations, one key per target
     marker , status, status_label
     """
-    conn = database.connect(db_path) if db_path else None
+    conn = (
+        database.connect(db_config)
+        if db_config is not None and db_config.is_configured() else None
+    )
 
     rows = []
     for species in species_names:
