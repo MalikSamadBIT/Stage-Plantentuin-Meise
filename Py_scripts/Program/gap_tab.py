@@ -10,6 +10,7 @@ from tkcalendar import DateEntry
 
 import database
 import gap_analysis
+import report_docx
 import report_pdf
 from geoloc_client import SITES, fetch_observation_counts_batch
 from output import parse_no_matches_table
@@ -388,12 +389,16 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
 
     ctk.CTkButton(
         export_row, text="Export to PDF...", command=lambda: export_pdf()
+    ).pack(side="left", padx=(0, 8))
+
+    ctk.CTkButton(
+        export_row, text="Export to Word...", command=lambda: export_docx()
     ).pack(side="left")
 
     export_status_label = ctk.CTkLabel(export_row, text="", text_color="gray")
     export_status_label.pack(side="left", padx=(10, 0))
 
-    def export_pdf():
+    def _export_report(build_fn, dialog_title, extension, filetype_label):
         if not last_rows:
             export_status_label.configure(
                 text="Run a gap analysis first - it's the report's required "
@@ -403,9 +408,9 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
             return
 
         path = filedialog.asksaveasfilename(
-            parent=root, title="Export report to PDF",
-            defaultextension=".pdf",
-            filetypes=[("PDF", "*.pdf"), ("All files", "*.*")]
+            parent=root, title=dialog_title,
+            defaultextension=extension,
+            filetypes=[(filetype_label, f"*{extension}"), ("All files", "*.*")]
         )
         if not path:
             return
@@ -417,8 +422,7 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
         }
 
         try:
-            report_pdf.build_report_pdf(
-                path, last_rows, last_target_markers, meta, report_items)
+            build_fn(path, last_rows, last_target_markers, meta, report_items)
         except Exception as e:
             export_status_label.configure(
                 text=f"Export failed: {e}", text_color="red")
@@ -428,6 +432,16 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
             text=f"Exported to {os.path.basename(path)} "
                  f"({1 + len(report_items)} section(s)).",
             text_color="white"
+        )
+
+    def export_pdf():
+        _export_report(
+            report_pdf.build_report_pdf, "Export report to PDF", ".pdf", "PDF")
+
+    def export_docx():
+        _export_report(
+            report_docx.build_report_docx, "Export report to Word",
+            ".docx", "Word document"
         )
 
     items_frame = ctk.CTkScrollableFrame(contents_tab)
