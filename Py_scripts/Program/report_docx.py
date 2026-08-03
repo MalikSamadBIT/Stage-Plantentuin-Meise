@@ -10,6 +10,8 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Emu, Pt, RGBColor
 from PIL import Image as PILImage
 
+import gap_analysis
+
 # Same status vocabulary/colors as report_pdf.py, for visual parity between
 # the two export formats.
 STATUS_COLORS = {
@@ -147,6 +149,24 @@ def _build_gap_table(doc, rows, target_markers, available_width):
     return table
 
 
+def _build_marker_coverage_table(doc, coverage_stats, available_width):
+    table = doc.add_table(rows=1, cols=3)
+    table.style = "Table Grid"
+    _set_cell_text(table.rows[0].cells[0], "Marker", bold=True)
+    _set_cell_text(table.rows[0].cells[1], "Species covered", bold=True)
+    _set_cell_text(table.rows[0].cells[2], "Coverage", bold=True)
+
+    for marker, covered, assessed, percentage in coverage_stats:
+        cells = table.add_row().cells
+        _set_cell_text(cells[0], marker)
+        _set_cell_text(cells[1], f"{covered} / {assessed}")
+        _set_cell_text(cells[2], f"{percentage:.0f}%")
+
+    _set_column_widths(
+        table, [available_width * 0.4, available_width * 0.3, available_width * 0.3])
+    return table
+
+
 def _build_score_table(doc, scores, available_width):
     table = doc.add_table(rows=1, cols=2)
     table.style = "Table Grid"
@@ -212,7 +232,9 @@ def _add_split_image(doc, image_path, available_width, target_dpi=150):
         doc.add_picture(buf, width=available_width)
 
 
-def build_report_docx(path, rows, target_markers, meta, report_items):
+def build_report_docx(
+    path, rows, target_markers, meta, report_items, status_chart_bytes=None
+):
     """
     Same inputs/shape as report_pdf.build_report_pdf - see that docstring.
     """
@@ -284,9 +306,26 @@ def build_report_docx(path, rows, target_markers, meta, report_items):
     )
     _build_gap_table(doc, rows, target_markers, available_width)
 
-    section_num = 2
-    table_num = 2
+    coverage_stats = gap_analysis.build_marker_coverage_stats(rows, target_markers)
+    _formatted_paragraph(
+        doc,
+        "Table 2. Marker coverage across surveyed species (of those "
+        "successfully checked against the observation site).",
+        size=9, italic=True, color=MUTED_COLOR, space_after=4
+    )
+    _build_marker_coverage_table(doc, coverage_stats, available_width)
+
     figure_num = 1
+    if status_chart_bytes:
+        doc.add_picture(io.BytesIO(status_chart_bytes), width=available_width)
+        _formatted_paragraph(
+            doc, f"Figure {figure_num}. Gap analysis status summary.",
+            size=9, italic=True, color=MUTED_COLOR, space_after=4
+        )
+        figure_num += 1
+
+    section_num = 2
+    table_num = 3
 
     for item in report_items:
         if item["type"] == "retrieval_chart":

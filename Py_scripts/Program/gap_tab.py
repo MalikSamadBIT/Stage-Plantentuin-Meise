@@ -384,6 +384,13 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
         justify="left", text_color="gray", wraplength=700
     ).pack(anchor="w", padx=10, pady=(0, 10))
 
+    include_chart_var = ctk.BooleanVar(value=True)
+    ctk.CTkCheckBox(
+        contents_tab, text="Include gap-status summary chart (bar chart of "
+                            "no sequences/partial/complete/no data counts)",
+        variable=include_chart_var
+    ).pack(anchor="w", padx=10, pady=(0, 5))
+
     export_row = ctk.CTkFrame(contents_tab, fg_color="transparent")
     export_row.pack(fill="x", padx=10, pady=(0, 5))
 
@@ -421,8 +428,16 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
             "end_date": end_date_entry.get_date(),
         }
 
+        status_chart_bytes = (
+            gap_analysis.build_status_chart_png(last_rows)
+            if include_chart_var.get() else None
+        )
+
         try:
-            build_fn(path, last_rows, last_target_markers, meta, report_items)
+            build_fn(
+                path, last_rows, last_target_markers, meta, report_items,
+                status_chart_bytes=status_chart_bytes
+            )
         except Exception as e:
             export_status_label.configure(
                 text=f"Export failed: {e}", text_color="red")

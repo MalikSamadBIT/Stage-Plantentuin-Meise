@@ -1,5 +1,6 @@
 import io
 import math
+import os
 from datetime import datetime
 
 from PIL import Image as PILImage
@@ -8,9 +9,13 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 )
+
+import gap_analysis
 
 # Same status vocabulary as gap_analysis.py, just recolored for a white page
 # instead of the dark Treeview background.
@@ -21,33 +26,56 @@ STATUS_COLORS = {
     "no_data": colors.HexColor("#6b7280"),
 }
 
+# The base-14 "Times-Roman" PDF font only covers WinAnsi/Latin-1 - real
+# synonym data can include Cyrillic, Hungarian, etc., which render as
+# unreadable boxes under it. Registering the actual Windows Times New Roman
+# TrueType font (which has broad Unicode coverage) fixes that; falls back to
+# the base-14 font if those files aren't present (e.g. non-Windows).
+_FONT_DIR = r"C:\Windows\Fonts"
+try:
+    pdfmetrics.registerFont(TTFont("TimesNewRoman", os.path.join(_FONT_DIR, "times.ttf")))
+    pdfmetrics.registerFont(TTFont("TimesNewRoman-Bold", os.path.join(_FONT_DIR, "timesbd.ttf")))
+    pdfmetrics.registerFont(TTFont("TimesNewRoman-Italic", os.path.join(_FONT_DIR, "timesi.ttf")))
+    pdfmetrics.registerFont(TTFont("TimesNewRoman-BoldItalic", os.path.join(_FONT_DIR, "timesbi.ttf")))
+    pdfmetrics.registerFontFamily(
+        "TimesNewRoman", normal="TimesNewRoman", bold="TimesNewRoman-Bold",
+        italic="TimesNewRoman-Italic", boldItalic="TimesNewRoman-BoldItalic"
+    )
+    FONT_REGULAR = "TimesNewRoman"
+    FONT_BOLD = "TimesNewRoman-Bold"
+    FONT_ITALIC = "TimesNewRoman-Italic"
+except Exception:
+    FONT_REGULAR = "Times-Roman"
+    FONT_BOLD = "Times-Bold"
+    FONT_ITALIC = "Times-Italic"
+
 _styles = getSampleStyleSheet()
 
 TITLE_STYLE = ParagraphStyle(
-    "ReportTitle", parent=_styles["Title"], fontName="Times-Bold",
+    "ReportTitle", parent=_styles["Title"], fontName=FONT_BOLD,
     fontSize=20, alignment=TA_CENTER, spaceAfter=4
 )
 META_STYLE = ParagraphStyle(
-    "ReportMeta", parent=_styles["Normal"], fontName="Times-Italic",
+    "ReportMeta", parent=_styles["Normal"], fontName=FONT_ITALIC,
     fontSize=10, alignment=TA_CENTER, textColor=colors.HexColor("#555555")
 )
 ABSTRACT_STYLE = ParagraphStyle(
-    "Abstract", parent=_styles["Normal"], fontName="Times-Roman",
+    "Abstract", parent=_styles["Normal"], fontName=FONT_REGULAR,
     fontSize=10.5, leading=15, alignment=TA_JUSTIFY, spaceBefore=14, spaceAfter=10
 )
 SECTION_STYLE = ParagraphStyle(
-    "Section", parent=_styles["Heading2"], fontName="Times-Bold",
+    "Section", parent=_styles["Heading2"], fontName=FONT_BOLD,
     fontSize=13, spaceBefore=16, spaceAfter=4
 )
 CAPTION_STYLE = ParagraphStyle(
-    "Caption", parent=_styles["Normal"], fontName="Times-Italic",
+    "Caption", parent=_styles["Normal"], fontName=FONT_ITALIC,
     fontSize=9, textColor=colors.HexColor("#555555"), spaceAfter=6
 )
 CELL_STYLE = ParagraphStyle(
-    "TableCell", parent=_styles["Normal"], fontName="Times-Roman", fontSize=9
+    "TableCell", parent=_styles["Normal"], fontName=FONT_REGULAR, fontSize=9
 )
 HEADER_STYLE = ParagraphStyle(
-    "TableHeader", parent=CELL_STYLE, fontName="Times-Bold", alignment=TA_CENTER
+    "TableHeader", parent=CELL_STYLE, fontName=FONT_BOLD, alignment=TA_CENTER
 )
 
 
@@ -64,7 +92,7 @@ def _status_paragraph(status_label, status_key):
 
 def _page_footer(canvas, doc):
     canvas.saveState()
-    canvas.setFont("Times-Italic", 8)
+    canvas.setFont(FONT_ITALIC, 8)
     canvas.setFillColor(colors.HexColor("#777777"))
     canvas.drawCentredString(doc.pagesize[0] / 2, 1.2 * cm, f"Page {doc.page}")
     canvas.restoreState()
@@ -186,6 +214,27 @@ def _build_gap_table(rows, target_markers, available_width):
     return table
 
 
+def _build_marker_coverage_table(coverage_stats):
+    data = [["Marker", "Species covered", "Coverage"]]
+    for marker, covered, assessed, percentage in coverage_stats:
+        data.append([marker, f"{covered} / {assessed}", f"{percentage:.0f}%"])
+
+    table = Table(data, colWidths=[5 * cm, 4 * cm, 4 * cm])
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
+        ("FONTNAME", (0, 1), (-1, -1), FONT_REGULAR),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("LINEABOVE", (0, 0), (-1, 0), 1, colors.black),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#999999")),
+        ("LINEBELOW", (0, -1), (-1, -1), 1, colors.black),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return table
+
+
 def _build_score_table(scores):
     data = [["Metric", "Value"]]
     for label, value in scores.items():
@@ -199,7 +248,7 @@ def _build_score_table(scores):
 
     table = Table(data, colWidths=[9 * cm, 4 * cm])
     table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), "Times-Roman"),
+        ("FONTNAME", (0, 0), (-1, -1), FONT_REGULAR),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("LINEABOVE", (0, 0), (-1, 0), 1, colors.black),
         ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#999999")),
@@ -222,7 +271,7 @@ def _build_synonyms_table(synonym_results):
 
     table = Table(data, colWidths=[4.5 * cm, 9.5 * cm])
     table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, 0), "Times-Bold"),
+        ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("LINEABOVE", (0, 0), (-1, 0), 1, colors.black),
         ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#999999")),
@@ -234,7 +283,9 @@ def _build_synonyms_table(synonym_results):
     return table
 
 
-def build_report_pdf(path, rows, target_markers, meta, report_items):
+def build_report_pdf(
+    path, rows, target_markers, meta, report_items, status_chart_bytes=None
+):
     """
     path: output .pdf file path
     rows: gap_analysis.build_gap_rows() output - the required "Gap analysis"
@@ -244,6 +295,9 @@ def build_report_pdf(path, rows, target_markers, meta, report_items):
     report_items: optional sections pushed from the Retrieval Rate/MSA/
         Synonym search tabs' "Add to Report" buttons - see their item
         shapes in gap_tab.py's build_gap_tab docstring
+    status_chart_bytes: optional PNG bytes from
+        gap_analysis.build_status_chart_png(rows) - a user-toggleable
+        summary figure placed right after the gap analysis table
     """
     # A handful of marker columns fit fine on a portrait page; more than
     # that needs the extra width landscape gives, rather than squeezing
@@ -298,9 +352,25 @@ def build_report_pdf(path, rows, target_markers, meta, report_items):
     ))
     story.append(_build_gap_table(rows, target_markers, doc.width))
 
-    section_num = 2
-    table_num = 2
+    coverage_stats = gap_analysis.build_marker_coverage_stats(rows, target_markers)
+    story.append(Paragraph(
+        "Table 2. Marker coverage across surveyed species (of those "
+        "successfully checked against the observation site).",
+        CAPTION_STYLE
+    ))
+    story.append(_build_marker_coverage_table(coverage_stats))
+
     figure_num = 1
+    if status_chart_bytes:
+        story.append(_scaled_image(io.BytesIO(status_chart_bytes), doc.width))
+        story.append(Paragraph(
+            f"Figure {figure_num}. Gap analysis status summary.",
+            CAPTION_STYLE
+        ))
+        figure_num += 1
+
+    section_num = 2
+    table_num = 3
 
     for item in report_items:
         if item["type"] == "retrieval_chart":
