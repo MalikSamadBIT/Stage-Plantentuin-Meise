@@ -1,6 +1,8 @@
 import io
+import math
 from datetime import datetime
 
+from PIL import Image as PILImage
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4, landscape
@@ -75,6 +77,50 @@ def _scaled_image(image_source, max_width):
         img.drawWidth = max_width
         img.drawHeight = img.imageHeight * ratio
     return img
+
+
+def _split_wide_image(image_path, available_width, target_dpi=150, row_gap=6):
+    """
+    MSA alignment images get wider with more sequence columns, but a plain
+    "scale the whole thing to fit the page" shrinks long alignments into an
+    unreadable strip. This instead crops the image into several width-
+    limited horizontal strips (keeping full height, i.e. all sequence rows)
+    and returns them as separate flowables to stack vertically - each strip
+    lands at roughly target_dpi when displayed at the page's available
+    width, so readability stays consistent no matter how wide the original
+    alignment is.
+    """
+    img = PILImage.open(image_path)
+    native_width, native_height = img.size
+
+    # how many source pixels fit across the page's available width while
+    # staying at (roughly) target_dpi - 72pt = 1 inch
+    max_px_per_strip = (available_width / 72) * target_dpi
+
+    if native_width <= max_px_per_strip:
+        return [_scaled_image(image_path, available_width)]
+
+    num_strips = math.ceil(native_width / max_px_per_strip)
+    strip_width = math.ceil(native_width / num_strips)
+
+    flowables = []
+    for i in range(num_strips):
+        left = i * strip_width
+        right = min(left + strip_width, native_width)
+        strip = img.crop((left, 0, right, native_height))
+
+        buf = io.BytesIO()
+        strip.save(buf, format="PNG")
+        buf.seek(0)
+
+        display_height = available_width * (strip.height / strip.width)
+        flowables.append(
+            Image(buf, width=available_width, height=display_height))
+
+        if i < num_strips - 1:
+            flowables.append(Spacer(1, row_gap))
+
+    return flowables
 
 
 def _gap_table_col_widths(num_markers, available_width):
@@ -269,7 +315,7 @@ def build_report_pdf(path, rows, target_markers, meta, report_items):
         elif item["type"] == "msa":
             story.append(Paragraph(
                 f"{section_num}. Multiple sequence alignment", SECTION_STYLE))
-            story.append(_scaled_image(item["image_path"], doc.width))
+            story.extend(_split_wide_image(item["image_path"], doc.width))
             story.append(Paragraph(f"Figure {figure_num}. {item['title']}.",
                                     CAPTION_STYLE))
             figure_num += 1
