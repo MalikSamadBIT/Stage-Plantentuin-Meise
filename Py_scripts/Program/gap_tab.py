@@ -24,9 +24,15 @@ STATUS_COLORS = {
     "no_data": "#9a9a9a",
 }
 
+# rows worth sending to Fetch FASTA - "no_data" is excluded since that
+# means observations couldn't be checked at all, not that sequences are
+# missing.
+MISSING_STATUSES = {"no_sequences", "partial"}
+
 
 def build_gap_tab(
-    parent, root=None, db_config=None, report_items=None, shared_species=None
+    parent, root=None, db_config=None, report_items=None, shared_species=None,
+    go_to_fetch_fasta=None
 ):
     """
     parent: the tab frame to build the widgets into.
@@ -43,6 +49,11 @@ def build_gap_tab(
         list" that Fetch FASTA/Synonym search can also save to and load
         from, so the same list doesn't need to be re-picked here. Falls
         back to a private (empty) one if this tab is ever used standalone.
+    go_to_fetch_fasta: optional callable, called after "Send missing
+        species to Fetch FASTA" loads them into shared_species - switches
+        the app over to the Fetch FASTA tab with them already filled in.
+        If not supplied, the species are still saved to shared_species but
+        the view doesn't switch (e.g. when this tab is used standalone).
     """
 
     if db_config is None:
@@ -224,6 +235,11 @@ def build_gap_tab(
 
     ctk.CTkButton(
         table_top_bar, text="Export to CSV...", command=lambda: export_csv()
+    ).pack(side="left", padx=(0, 5))
+
+    ctk.CTkButton(
+        table_top_bar, text="Send missing species to Fetch FASTA",
+        command=lambda: send_missing_to_fetch_fasta()
     ).pack(side="left")
 
     table_style = ttk.Style()
@@ -398,6 +414,37 @@ def build_gap_tab(
 
         status_label.configure(
             text=f"Exported {len(last_rows)} row(s) to {os.path.basename(path)}.",
+            text_color="white"
+        )
+
+    def send_missing_to_fetch_fasta():
+        if not last_rows:
+            status_label.configure(
+                text="Nothing to send - run a gap analysis first.",
+                text_color="red"
+            )
+            return
+
+        missing = [
+            row["species"] for row in last_rows
+            if row["status"] in MISSING_STATUSES
+        ]
+
+        if not missing:
+            status_label.configure(
+                text="Nothing missing to send - every species checked has "
+                     "sequences (or the check couldn't run).",
+                text_color="white"
+            )
+            return
+
+        shared_species.set(missing, source="Gap Report (missing species)")
+
+        if go_to_fetch_fasta is not None:
+            go_to_fetch_fasta()
+
+        status_label.configure(
+            text=f"Sent {len(missing)} missing species to Fetch FASTA.",
             text_color="white"
         )
 

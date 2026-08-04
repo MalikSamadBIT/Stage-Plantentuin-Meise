@@ -99,9 +99,16 @@ build_synonym_tab(
     shared_species=shared_species
 )
 build_maps_tab(Maps, app, db_config=db_config)
+
+
+def go_to_fetch_fasta():
+    load_shared_species()
+    tabs.set("Fetch FASTA")
+
+
 build_gap_tab(
     Gap_Report, app, db_config=db_config, report_items=report_items,
-    shared_species=shared_species
+    shared_species=shared_species, go_to_fetch_fasta=go_to_fetch_fasta
 )
 
 
