@@ -25,7 +25,9 @@ STATUS_COLORS = {
 }
 
 
-def build_gap_tab(parent, root=None, db_config=None, report_items=None):
+def build_gap_tab(
+    parent, root=None, db_config=None, report_items=None, shared_species=None
+):
     """
     parent: the tab frame to build the widgets into.
     root: the main app window, used as the file-dialog parent.
@@ -37,12 +39,18 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
         this tab lists and manages them, and (eventually) assembles the
         final report from them. Falls back to a private (empty) one if
         this tab is ever used standalone.
+    shared_species: shared database.SpeciesList - the "current species
+        list" that Fetch FASTA/Synonym search can also save to and load
+        from, so the same list doesn't need to be re-picked here. Falls
+        back to a private (empty) one if this tab is ever used standalone.
     """
 
     if db_config is None:
         db_config = database.DatabaseConfig()
     if report_items is None:
         report_items = []
+    if shared_species is None:
+        shared_species = database.SpeciesList()
 
     sub_tabs = ctk.CTkTabview(parent)
     sub_tabs.pack(fill="both", expand=True)
@@ -103,6 +111,32 @@ def build_gap_tab(parent, root=None, db_config=None, report_items=None):
         anchor="w", padx=10)
     species_textbox = ctk.CTkTextbox(analysis_tab, height=50)
     species_textbox.pack(fill="x", padx=10, pady=(0, 10))
+
+    ctk.CTkLabel(
+        analysis_tab, textvariable=shared_species.display_var, text_color="gray"
+    ).pack(anchor="w", padx=10, pady=(0, 2))
+
+    def load_shared_species():
+        csv_path.set("")
+        no_matches_path.set("")
+        species_textbox.delete("1.0", "end")
+        species_textbox.insert("1.0", ", ".join(shared_species.names))
+
+    def save_shared_species():
+        shared_species.set(get_species_list(), source="Gap Report")
+
+    shared_species_button_frame = ctk.CTkFrame(analysis_tab, fg_color="transparent")
+    shared_species_button_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+    ctk.CTkButton(
+        shared_species_button_frame, text="Load shared species list",
+        command=load_shared_species
+    ).pack(side="left", padx=(0, 5))
+
+    ctk.CTkButton(
+        shared_species_button_frame, text="Save as shared species list",
+        command=save_shared_species
+    ).pack(side="left")
 
     def get_species_list():
         if no_matches_path.get():

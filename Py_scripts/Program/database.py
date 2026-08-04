@@ -65,6 +65,39 @@ class DatabaseConfig:
         self.refresh_display()
 
 
+class SpeciesList:
+    """
+    The "current species list" - shared across Fetch FASTA, Synonym search
+    and Gap Report the same way DatabaseConfig is, so a species list built
+    in one tab can be saved here and loaded into the others instead of
+    being re-entered/re-picked up to three times. Tabs keep their own
+    CSV/textbox inputs and only touch this when the user explicitly saves
+    or loads - nothing here updates automatically as a tab's inputs change.
+    """
+
+    def __init__(self):
+        self.names = []
+        self.source = ""
+        self.display_var = ctk.StringVar(value="No shared species list set yet.")
+
+    def trace_add(self, mode, callback):
+        return self.display_var.trace_add(mode, callback)
+
+    def set(self, names, source=""):
+        self.names = list(dict.fromkeys(n for n in names if n))
+        self.source = source
+        self.refresh_display()
+
+    def refresh_display(self):
+        if not self.names:
+            text = "No shared species list set yet."
+        else:
+            text = f"{len(self.names)} species"
+            if self.source:
+                text += f" (last saved from {self.source})"
+        self.display_var.set(text)
+
+
 # runs/species/synonyms are safe to create unconditionally - only
 # "sequences" might already exist from before species/synonyms/queried_as
 # were introduced, so it's handled separately (see _migrate_sequences_table).

@@ -32,7 +32,7 @@ TOP_N = 1
 
 def build_synonym_tab(
     parent, root=None, get_ncbi_credentials=None, db_config=None,
-    report_items=None
+    report_items=None, shared_species=None
 ):
     """
     parent: the tab frame to build the widgets into.
@@ -45,6 +45,10 @@ def build_synonym_tab(
     report_items: shared list the Gap Report tab reads from - "Add to
         Report" pushes the current synonym search results here. Falls back
         to a private (unread) one if this tab is ever used standalone.
+    shared_species: shared database.SpeciesList - the "current species
+        list" that Fetch FASTA/Gap Report can also save to and load from,
+        so the same list doesn't need to be re-entered here. Falls back to
+        a private (empty) one if this tab is ever used standalone.
     """
 
     csv_path = ctk.StringVar()
@@ -53,6 +57,8 @@ def build_synonym_tab(
         db_config = database.DatabaseConfig()
     if report_items is None:
         report_items = []
+    if shared_species is None:
+        shared_species = database.SpeciesList()
 
     last_synonym_results = {}
     last_sequence_results = []
@@ -113,6 +119,32 @@ def build_synonym_tab(
         anchor="w", padx=10)
     species_textbox = ctk.CTkTextbox(scroll, height=80)
     species_textbox.pack(fill="x", padx=10, pady=(0, 10))
+
+    ctk.CTkLabel(
+        scroll, textvariable=shared_species.display_var, text_color="gray"
+    ).pack(anchor="w", padx=10, pady=(0, 2))
+
+    def load_shared_species():
+        csv_path.set("")
+        no_matches_path.set("")
+        species_textbox.delete("1.0", "end")
+        species_textbox.insert("1.0", ", ".join(shared_species.names))
+
+    def save_shared_species():
+        shared_species.set(get_species_list(), source="Synonym search")
+
+    shared_species_button_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+    shared_species_button_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+    ctk.CTkButton(
+        shared_species_button_frame, text="Load shared species list",
+        command=load_shared_species
+    ).pack(side="left", padx=(0, 5))
+
+    ctk.CTkButton(
+        shared_species_button_frame, text="Save as shared species list",
+        command=save_shared_species
+    ).pack(side="left")
 
     status_label = ctk.CTkLabel(scroll, text="No species loaded yet.")
     status_label.pack(anchor="w", padx=10, pady=(0, 5))

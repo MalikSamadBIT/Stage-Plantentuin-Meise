@@ -59,6 +59,11 @@ db_config.refresh_display()
 # the Gap Report tab's "Report Contents" sub-tab lists/manages them.
 report_items = []
 
+# the "current species list" - Fetch FASTA/Synonym search/Gap Report can
+# each save their species list here and load it back in another tab, so the
+# same list doesn't need to be re-entered/re-picked in up to three places.
+shared_species = database.SpeciesList()
+
 
 # TABS------------------------------------------------------------
 tabs = ctk.CTkTabview(app)
@@ -90,10 +95,14 @@ build_synonym_tab(
         ncbi_email_entry.get().strip(), ncbi_api_key_entry.get().strip()
     ),
     db_config=db_config,
-    report_items=report_items
+    report_items=report_items,
+    shared_species=shared_species
 )
 build_maps_tab(Maps, app, db_config=db_config)
-build_gap_tab(Gap_Report, app, db_config=db_config, report_items=report_items)
+build_gap_tab(
+    Gap_Report, app, db_config=db_config, report_items=report_items,
+    shared_species=shared_species
+)
 
 
 # LEFT PANEL--------------------------------------------------------
@@ -211,6 +220,55 @@ ctk.CTkLabel(scroll, text="Or enter species names (comma separated)").pack(
     anchor="w")
 species_textbox = ctk.CTkTextbox(scroll, height=80)
 species_textbox.pack(fill="x", pady=(0, 10))
+
+
+def compute_species_list():
+    species_list = list(df["Name"]) if df is not None else []
+    species_list += [
+        s.strip() for s in species_textbox.get("1.0", "end").split(",")
+        if s.strip()
+    ]
+
+    if strip_hybrid_var.get():
+        species_list = [strip_hybrid_marker(s) for s in species_list]
+
+    return list(dict.fromkeys(s for s in species_list if s))
+
+
+# SHARED SPECIES LIST------------------------------------------------------
+# lets this species list be reused in Synonym search/Gap Report (or a list
+# saved from one of those tabs be loaded here) instead of re-entering it.
+
+shared_species_status = ctk.CTkLabel(
+    scroll, textvariable=shared_species.display_var, text_color="gray"
+)
+shared_species_status.pack(anchor="w", pady=(0, 2))
+
+
+def load_shared_species():
+    global df
+    df = None
+    file_path.set("")
+    species_textbox.delete("1.0", "end")
+    species_textbox.insert("1.0", ", ".join(shared_species.names))
+
+
+def save_shared_species():
+    shared_species.set(compute_species_list(), source="Fetch FASTA")
+
+
+shared_species_button_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+shared_species_button_frame.pack(fill="x", pady=(0, 10))
+
+ctk.CTkButton(
+    shared_species_button_frame, text="Load shared species list",
+    command=load_shared_species
+).pack(side="left", padx=(0, 5))
+
+ctk.CTkButton(
+    shared_species_button_frame, text="Save as shared species list",
+    command=save_shared_species
+).pack(side="left")
 
 
 # RESUME FROM A PARTIAL RUN-----------------------------------------------------------
@@ -907,16 +965,7 @@ def run_search():
             Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
             return
     else:
-        species_list = list(df["Name"]) if df is not None else []
-        species_list += [
-            s.strip() for s in species_textbox.get("1.0", "end").split(",")
-            if s.strip()
-        ]
-
-        if strip_hybrid_var.get():
-            species_list = [strip_hybrid_marker(s) for s in species_list]
-
-        species_list = list(dict.fromkeys(s for s in species_list if s))
+        species_list = compute_species_list()
 
         if not species_list or not output_dir.get():
             update_status(
