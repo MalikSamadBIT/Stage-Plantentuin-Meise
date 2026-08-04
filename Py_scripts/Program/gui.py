@@ -243,8 +243,7 @@ def compute_species_list():
 
 
 # SHARED SPECIES LIST------------------------------------------------------
-# lets this species list be reused in Synonym search/Gap Report (or a list
-# saved from one of those tabs be loaded here) instead of re-entering it.
+
 
 shared_species_status = ctk.CTkLabel(
     scroll, textvariable=shared_species.display_var, text_color="gray"
@@ -527,7 +526,7 @@ zero_species_checkbox.pack(anchor="w", pady=2)
 
 
 # DATABASE (alongside the file outputs)---------------------------------------------------------
-# the database file itself is shared program-wide, chosen once in Settings
+# the database file itself is shared program-wide chosen once in Settings
 
 save_database_var = ctk.BooleanVar(value=False)
 

@@ -317,10 +317,24 @@ def build_gap_tab(
                 )
             )
 
-        observation_counts = fetch_observation_counts_batch(
-            site["base_url"], species_list, start_date, end_date,
-            site["map_type"], progress=progress
+        # known synonyms on file (from a previous Synonym search "Save
+        # Synonyms to Database") let a species that doesn't match the
+        # observation site under the name as typed still get a real count
+        # instead of falling back to "no data" - same idea as
+        # count_sequences_by_marker already applies on the sequence side.
+        synonym_conn = database.connect(db_config) if db_config.is_configured() else None
+        get_synonyms = (
+            (lambda name: database.get_synonym_names(synonym_conn, name))
+            if synonym_conn is not None else None
         )
+        try:
+            observation_counts, resolved_via = fetch_observation_counts_batch(
+                site["base_url"], species_list, start_date, end_date,
+                site["map_type"], progress=progress, get_synonyms=get_synonyms
+            )
+        finally:
+            if synonym_conn is not None:
+                synonym_conn.close()
 
         rows = gap_analysis.build_gap_rows(
             species_list, observation_counts, db_config, target_markers)
@@ -339,8 +353,12 @@ def build_gap_tab(
                     "counts shown as 0/\"No sequences\" rather than "
                     "actually checked)"
                 )
+            synonym_note = (
+                f" ({len(resolved_via)} resolved via a known synonym)"
+                if resolved_via else ""
+            )
             status_label.configure(
-                text=f"Done - {len(rows)} species checked.{note}",
+                text=f"Done - {len(rows)} species checked.{note}{synonym_note}",
                 text_color="white"
             )
             refresh_items_list()

@@ -526,6 +526,31 @@ def add_synonyms(conn, canonical_name, synonyms):
     return species_id
 
 
+def get_synonym_names(conn, species_name):
+    """
+    Returns the other known synonym/vernacular names on file for a species
+    (any language), resolved the same way count_sequences_by_marker
+    resolves a name - by canonical name or by an already-known synonym -
+    excluding the queried name itself. Used to retry a lookup under an
+    alternate name (e.g. an observation-site search) when the name as
+    typed doesn't match, the same way count_sequences_by_marker already
+    lets sequence lookups succeed under any name variant on file.
+    """
+    rows = conn.execute("""
+        SELECT DISTINCT name
+        FROM synonyms_view
+        WHERE (
+            LOWER(species) = LOWER(?)
+            OR LOWER(species) IN (
+                SELECT LOWER(species) FROM synonyms_view WHERE LOWER(name) = LOWER(?)
+            )
+        )
+        AND LOWER(name) != LOWER(?)
+    """, (species_name, species_name, species_name)).fetchall()
+
+    return [row["name"] for row in rows]
+
+
 def count_sequences_by_marker(conn, species_name):
     """
     Returns [(marker, count), ...] for the given species name, matched

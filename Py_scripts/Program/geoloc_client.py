@@ -129,12 +129,28 @@ def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
     return results
 
 
+def _lookup_observation_count(page, base_url, name, start_date, end_date, map_type):
+    try:
+        species_id = lookup_species_id(name, base_url)
+        features = _fetch_grid_features(
+            page, base_url, species_id, start_date, end_date, map_type)
+        return sum(feat["properties"]["num_obs"] for feat in features)
+    except Exception:
+        return None
+
+
 def fetch_observation_counts_batch(
-    base_url, species_names, start_date, end_date, map_type, progress=None
+    base_url, species_names, start_date, end_date, map_type, progress=None,
+    get_synonyms=None
 ):
     """
-    Returns {species_name: total_observations}, with None for any species
-    that couldn't be resolved/fetched (name not found, network error).
+    Returns (results, resolved_via):
+    - results: {species_name: total_observations}, with None for any
+      species that couldn't be resolved/fetched under its own name or any
+      synonym (name not found, network error).
+    - resolved_via: {species_name: synonym_name} for species that only
+      matched under a synonym, not their own name - lets callers surface
+      which counts came from a fallback name instead of the one asked for.
 
     Reuses a single browser/page across every species instead of relaunching
     one per species like fetch_grid_data does - browser startup + the Anubis
@@ -143,26 +159,36 @@ def fetch_observation_counts_batch(
 
     progress: optional callable(completed, total, species_name), called
     after each species (found or not).
+    get_synonyms: optional callable(species_name) -> list of alternate
+    names to retry under if the exact name doesn't match on the site (e.g.
+    database.get_synonym_names bound to the shared database connection) -
+    the same "try known synonyms before giving up" the database-side
+    sequence lookup already does via count_sequences_by_marker.
     """
     results = {}
+    resolved_via = {}
     total = len(species_names)
 
     with sync_playwright() as p:
         browser, page = _new_browser_page(p)
 
         for i, name in enumerate(species_names):
-            try:
-                species_id = lookup_species_id(name, base_url)
-                features = _fetch_grid_features(
-                    page, base_url, species_id, start_date, end_date, map_type)
-                results[name] = sum(
-                    feat["properties"]["num_obs"] for feat in features)
-            except Exception:
-                results[name] = None
+            count = _lookup_observation_count(
+                page, base_url, name, start_date, end_date, map_type)
+
+            if count is None and get_synonyms is not None:
+                for synonym in get_synonyms(name):
+                    count = _lookup_observation_count(
+                        page, base_url, synonym, start_date, end_date, map_type)
+                    if count is not None:
+                        resolved_via[name] = synonym
+                        break
+
+            results[name] = count
 
             if progress:
                 progress(i + 1, total, name)
 
         browser.close()
 
-    return results
+    return results, resolved_via
