@@ -66,10 +66,12 @@ if __name__ == "__main__":
     print(f"seq1 vs seq2: distance={distance:.4f}, n_sites={n_sites}")
 
     identical_dist, identical_sites = p_distance(seq1, seq1)
-    print(f"seq1 vs itself: distance={identical_dist}, n_sites={identical_sites}")
+    print(
+        f"seq1 vs itself: distance={identical_dist}, n_sites={identical_sites}")
 
     one_diff_dist, one_diff_sites = p_distance("ACGTACGTAC", "ACGTACGTAG")
-    print(f"1 diff / 10 sites: distance={one_diff_dist}, n_sites={one_diff_sites}")
+    print(
+        f"1 diff / 10 sites: distance={one_diff_dist}, n_sites={one_diff_sites}")
 
     # one base deleted from the middle -> aligner should introduce a gap;
     # the gap column should be excluded, leaving distance 0 over 9 sites
