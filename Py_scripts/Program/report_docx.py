@@ -361,6 +361,37 @@ def build_report_docx(
 
             section_num += 1
 
+        elif item["type"] == "barcode_gap":
+            a = item["assessment"]
+            _formatted_paragraph(
+                doc, f"{section_num}. Barcode gap - {a['species']}",
+                size=13, bold=True, space_before=14, space_after=2
+            )
+
+            verdict_label = gap_analysis.BARCODE_GAP_VERDICTS[a["verdict"]]
+            if a["verdict"] == "insufficient_data":
+                summary = f"Verdict: {verdict_label} - {a['reason']}"
+            else:
+                summary = (
+                    f"Verdict: {verdict_label}. Max intraspecific distance "
+                    f"{a['max_intraspecific']:.4f}, min interspecific distance "
+                    f"{a['min_interspecific']:.4f} (nearest neighbor: "
+                    f"{a['nearest_neighbor']}), gap {a['gap']:+.4f}."
+                )
+            _formatted_paragraph(doc, summary, space_before=4, space_after=8)
+
+            if item.get("image_bytes"):
+                doc.add_picture(io.BytesIO(item["image_bytes"]), width=available_width)
+                _formatted_paragraph(
+                    doc, f"Figure {figure_num}. {item['title']} - neighbor-joining "
+                    "guide tree (p-distance, no bootstrap support - not a "
+                    "rigorous phylogeny).",
+                    size=9, italic=True, color=MUTED_COLOR, space_after=4
+                )
+                figure_num += 1
+
+            section_num += 1
+
         elif item["type"] == "synonyms":
             _formatted_paragraph(doc, f"{section_num}. Synonyms", size=13,
                                   bold=True, space_before=14, space_after=2)

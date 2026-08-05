@@ -2,6 +2,8 @@ import io
 import itertools
 
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 from Bio import Phylo
 from Bio.Align import PairwiseAligner
 from Bio.Phylo.TreeConstruction import DistanceMatrix, DistanceTreeConstructor
@@ -279,8 +281,15 @@ def _unique_tip_label(species, accession, seen_labels):
 
 
 def _render_guide_tree_png(tree, genus, marker):
+    # Uses the Figure/FigureCanvasAgg object API directly rather than
+    # pyplot's plt.figure()/plt.close() - this can run on a background
+    # thread (see gap_tab.py's barcode-gap drill-down window), and pyplot's
+    # global figure-manager state isn't thread-safe, especially once an
+    # interactive backend is in play elsewhere in the app (see
+    # retrieval_rate_tab.py's embedded FigureCanvasTkAgg chart).
     n_tips = tree.count_terminals()
-    fig = plt.figure(figsize=(8, max(3, 0.3 * n_tips)), dpi=150)
+    fig = Figure(figsize=(8, max(3, 0.3 * n_tips)), dpi=150)
+    FigureCanvasAgg(fig)
     ax = fig.add_subplot(1, 1, 1)
     Phylo.draw(tree, do_show=False, axes=ax)
     ax.set_title(
@@ -292,7 +301,6 @@ def _render_guide_tree_png(tree, genus, marker):
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png")
-    plt.close(fig)
     buf.seek(0)
     return buf.getvalue()
 

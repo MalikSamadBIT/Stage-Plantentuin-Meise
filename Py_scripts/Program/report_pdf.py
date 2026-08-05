@@ -400,6 +400,34 @@ def build_report_pdf(
 
             section_num += 1
 
+        elif item["type"] == "barcode_gap":
+            a = item["assessment"]
+            story.append(Paragraph(
+                f"{section_num}. Barcode gap - {a['species']}", SECTION_STYLE))
+
+            verdict_label = gap_analysis.BARCODE_GAP_VERDICTS[a["verdict"]]
+            if a["verdict"] == "insufficient_data":
+                summary = f"Verdict: {verdict_label} - {a['reason']}"
+            else:
+                summary = (
+                    f"Verdict: {verdict_label}. Max intraspecific distance "
+                    f"{a['max_intraspecific']:.4f}, min interspecific distance "
+                    f"{a['min_interspecific']:.4f} (nearest neighbor: "
+                    f"{a['nearest_neighbor']}), gap {a['gap']:+.4f}."
+                )
+            story.append(Paragraph(summary, ABSTRACT_STYLE))
+
+            if item.get("image_bytes"):
+                story.append(_scaled_image(io.BytesIO(item["image_bytes"]), doc.width))
+                story.append(Paragraph(
+                    f"Figure {figure_num}. {item['title']} - neighbor-joining "
+                    "guide tree (p-distance, no bootstrap support - not a "
+                    "rigorous phylogeny).", CAPTION_STYLE
+                ))
+                figure_num += 1
+
+            section_num += 1
+
         elif item["type"] == "synonyms":
             story.append(Paragraph(f"{section_num}. Synonyms", SECTION_STYLE))
             story.append(Paragraph(

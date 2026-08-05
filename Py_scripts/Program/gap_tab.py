@@ -1,4 +1,5 @@
 import datetime
+import io
 import os
 import threading
 import tkinter
@@ -6,6 +7,7 @@ from tkinter import filedialog, ttk
 
 import customtkinter as ctk
 import pandas as pd
+from PIL import Image
 from tkcalendar import DateEntry
 
 import database
@@ -257,7 +259,12 @@ def build_gap_tab(
     ctk.CTkButton(
         table_top_bar, text="Send missing species to Fetch FASTA",
         command=lambda: send_missing_to_fetch_fasta()
-    ).pack(side="left")
+    ).pack(side="left", padx=(5, 0))
+
+    ctk.CTkButton(
+        table_top_bar, text="Barcode Gap Analysis...",
+        command=lambda: open_barcode_gap_window()
+    ).pack(side="left", padx=(5, 0))
 
     table_style = ttk.Style()
     table_style.theme_use("clam")
@@ -294,6 +301,163 @@ def build_gap_tab(
     table_vsb.pack(side=tkinter.RIGHT, fill=tkinter.Y)
     table_hsb.pack(side=tkinter.BOTTOM, fill=tkinter.X)
     tree.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=True)
+
+    # BARCODE GAP DRILL-DOWN-------------------------------------------------
+    # A per-species popup rather than an extra column on the results table:
+    # a real assessment needs pairwise alignment across every sequence in a
+    # genus, which is too slow to run eagerly for every row on every
+    # analysis pass - most of which won't even have >=2 sequences for a
+    # marker to begin with. Opened on demand for one selected species/marker
+    # instead.
+
+    def get_selected_species():
+        selection = tree.selection()
+        if not selection:
+            return None
+        values = tree.item(selection[0], "values")
+        return values[0] if values else None
+
+    def _render_tree_image(image_frame, png_bytes):
+        for widget in image_frame.winfo_children():
+            widget.destroy()
+        if not png_bytes:
+            return
+        img = Image.open(io.BytesIO(png_bytes))
+        x, y = img.size
+        tk_image = ctk.CTkImage(light_image=img, dark_image=img, size=(x, y))
+        ctk.CTkLabel(image_frame, text="", image=tk_image).pack(pady=10)
+
+    def _build_barcode_gap_window(species, target_markers):
+        win = ctk.CTkToplevel(root or parent)
+        win.title(f"Barcode gap - {species}")
+        win.geometry("820x720")
+
+        top_row = ctk.CTkFrame(win, fg_color="transparent")
+        top_row.pack(fill="x", padx=10, pady=(10, 5))
+        ctk.CTkLabel(top_row, text="Marker:").pack(side="left", padx=(0, 6))
+        marker_var = ctk.StringVar(value=target_markers[0])
+
+        win_status = ctk.CTkLabel(win, text="", text_color="gray")
+        win_status.pack(anchor="w", padx=10)
+
+        stats_label = ctk.CTkLabel(win, text="", justify="left", anchor="w")
+        stats_label.pack(fill="x", padx=10, pady=(0, 5))
+
+        image_frame = ctk.CTkScrollableFrame(win)
+        image_frame.pack(fill="both", expand=True, padx=10, pady=(0, 5))
+
+        report_row = ctk.CTkFrame(win, fg_color="transparent")
+        report_row.pack(fill="x", padx=10, pady=(0, 10))
+        add_report_button = ctk.CTkButton(
+            report_row, text="Add to Report", state="disabled")
+        add_report_button.pack(side="left")
+        report_status_label = ctk.CTkLabel(report_row, text="", text_color="gray")
+        report_status_label.pack(side="left", padx=(10, 0))
+
+        last_result = {}
+
+        def worker(marker):
+            conn = database.connect(db_config)
+            try:
+                assessment = gap_analysis.compute_barcode_gap(conn, species, marker)
+                genus = species.strip().split()[0]
+                tree_result = gap_analysis.build_genus_guide_tree(
+                    conn, genus, marker)
+            finally:
+                conn.close()
+
+            def finish():
+                last_result.clear()
+                last_result.update({
+                    "species": species, "marker": marker,
+                    "assessment": assessment, "tree_result": tree_result,
+                })
+
+                verdict = assessment["verdict"]
+                lines = [
+                    f"Verdict: {gap_analysis.BARCODE_GAP_VERDICTS[verdict]}"]
+                if verdict == "insufficient_data":
+                    lines.append(f"Reason: {assessment['reason']}")
+                else:
+                    lines.append(
+                        "Max intraspecific p-distance: "
+                        f"{assessment['max_intraspecific']:.4f}"
+                    )
+                    lines.append(
+                        "Min interspecific p-distance: "
+                        f"{assessment['min_interspecific']:.4f} "
+                        f"(nearest neighbor: {assessment['nearest_neighbor']})"
+                    )
+                    lines.append(f"Gap: {assessment['gap']:+.4f}")
+                stats_label.configure(text="\n".join(lines))
+
+                if tree_result["status"] == "ok":
+                    _render_tree_image(image_frame, tree_result["png"])
+                    win_status.configure(text="", text_color="gray")
+                else:
+                    _render_tree_image(image_frame, None)
+                    win_status.configure(
+                        text=f"Guide tree not available: {tree_result['reason']}",
+                        text_color="orange"
+                    )
+
+                add_report_button.configure(
+                    state="normal" if tree_result["status"] == "ok" else "disabled")
+                report_status_label.configure(text="")
+
+            win.after(0, finish)
+
+        def run(*_):
+            marker = marker_var.get()
+            win_status.configure(text="Computing...", text_color="white")
+            stats_label.configure(text="")
+            _render_tree_image(image_frame, None)
+            add_report_button.configure(state="disabled")
+            threading.Thread(target=worker, args=(marker,), daemon=True).start()
+
+        ctk.CTkSegmentedButton(
+            top_row, values=target_markers, variable=marker_var, command=run
+        ).pack(side="left")
+
+        def add_to_report():
+            if last_result.get("tree_result", {}).get("status") != "ok":
+                return
+            assessment = last_result["assessment"]
+            marker = last_result["marker"]
+            genus = last_result["species"].strip().split()[0]
+            report_items.append({
+                "type": "barcode_gap",
+                "title": f"Barcode gap - {last_result['species']} ({marker})",
+                "subtitle": f"{genus} guide tree, added from Gap Analysis tab",
+                "image_bytes": last_result["tree_result"]["png"],
+                "assessment": {
+                    "species": last_result["species"],
+                    "marker": marker,
+                    **assessment,
+                },
+            })
+            report_status_label.configure(text="Added to report.")
+
+        add_report_button.configure(command=add_to_report)
+
+        run()
+
+    def open_barcode_gap_window():
+        species = get_selected_species()
+        if species is None:
+            status_label.configure(
+                text="Select a species row first.", text_color="red")
+            return
+        if not last_target_markers:
+            status_label.configure(
+                text="Run a gap analysis first.", text_color="red")
+            return
+        if not db_config.is_configured():
+            status_label.configure(
+                text="Configure a database in Settings first.", text_color="red")
+            return
+
+        _build_barcode_gap_window(species, last_target_markers)
 
     # RUN / POPULATE----------------------------------------------------
 
