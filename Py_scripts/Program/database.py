@@ -551,6 +551,63 @@ def get_synonym_names(conn, species_name):
     return [row["name"] for row in rows]
 
 
+def get_sequences_for_species(conn, species_name, marker):
+    """
+    Returns [sequence, ...] on file for the given species and marker,
+    matched the same way count_sequences_by_marker matches species names
+    (canonical name, synonym, or queried_as).
+    """
+    rows = conn.execute("""
+        SELECT sequence
+        FROM sequences_view
+        WHERE marker = ?
+          AND (
+            LOWER(species) = LOWER(?)
+            OR LOWER(queried_as) = LOWER(?)
+            OR LOWER(species) IN (
+                SELECT LOWER(species) FROM synonyms_view WHERE LOWER(name) = LOWER(?)
+            )
+          )
+    """, (marker, species_name, species_name, species_name)).fetchall()
+
+    return [row["sequence"] for row in rows]
+
+
+def get_congener_sequences(conn, species_name, marker):
+    """
+    Returns [(other_species_name, sequence), ...] for every sequence on
+    file, for the given marker, belonging to a different species in the
+    same genus as species_name - genus is derived from the first word of
+    canonical_name, so species_name is expected to already be a canonical
+    name (as opposed to a synonym) here. Excludes species_name itself.
+    Empty list if no congeners are on file - callers treat that as
+    "insufficient data", not an error.
+    """
+    genus = species_name.strip().split()[0].lower()
+    target = species_name.strip().lower()
+
+    species_rows = conn.execute(
+        "SELECT canonical_name FROM species").fetchall()
+    congener_names = [
+        row["canonical_name"] for row in species_rows
+        if row["canonical_name"].split()[0].lower() == genus
+        and row["canonical_name"].strip().lower() != target
+    ]
+
+    if not congener_names:
+        return []
+
+    placeholders = ",".join("?" for _ in congener_names)
+    rows = conn.execute(f"""
+        SELECT species, sequence
+        FROM sequences_view
+        WHERE marker = ?
+          AND species IN ({placeholders})
+    """, (marker, *congener_names)).fetchall()
+
+    return [(row["species"], row["sequence"]) for row in rows]
+
+
 def count_sequences_by_marker(conn, species_name):
     """
     Returns [(marker, count), ...] for the given species name, matched

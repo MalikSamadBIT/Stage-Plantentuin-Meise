@@ -1,8 +1,16 @@
 import io
+import itertools
 
 import matplotlib.pyplot as plt
+from Bio.Align import PairwiseAligner
 
 import database
+
+BARCODE_GAP_VERDICTS = {
+    "clear_gap": "Clear barcode gap",
+    "overlap": "Overlap (no gap)",
+    "insufficient_data": "Insufficient data",
+}
 
 STATUS_RANK = {"no_sequences": 0, "partial": 1, "complete": 2, "no_data": 3}
 STATUS_LABELS = {
@@ -141,3 +149,112 @@ def build_status_chart_png(rows):
     plt.close(fig)
     buf.seek(0)
     return buf.getvalue()
+
+
+def _default_aligner():
+    aligner = PairwiseAligner()
+    aligner.mode = "global"
+    aligner.match_score = 1
+    aligner.mismatch_score = 0
+    aligner.gap_score = -1
+    return aligner
+
+
+def p_distance(seq1, seq2, aligner=None):
+    """
+    Returns (distance, n_sites): distance is the fraction of aligned,
+    non-gap columns that differ; n_sites is how many such columns there
+    were. Returns (None, 0) if there were no comparable columns (e.g. one
+    sequence is empty, or the two share no ungapped alignment column).
+    """
+    seq1 = "".join(seq1.split())
+    seq2 = "".join(seq2.split())
+
+    aligner = aligner or _default_aligner()
+    alignment = aligner.align(seq1, seq2)[0]
+    a1, a2 = str(alignment[0]), str(alignment[1])
+
+    n_sites = 0
+    n_diff = 0
+    for c1, c2 in zip(a1, a2):
+        if c1 == "-" or c2 == "-":
+            continue
+        n_sites += 1
+        if c1 != c2:
+            n_diff += 1
+
+    if n_sites == 0:
+        return None, 0
+    return n_diff / n_sites, n_sites
+
+
+def compute_barcode_gap(conn, species_name, marker, aligner=None):
+    """
+    Assesses whether species_name has a barcode gap at the given marker:
+    the max pairwise distance among its own sequences (intraspecific)
+    versus the min pairwise distance to any congener sequence on file
+    (interspecific, scoped to genus - see database.get_congener_sequences).
+
+    Returns a dict:
+      verdict: one of BARCODE_GAP_VERDICTS
+      reason: set (a short explanation) when verdict is "insufficient_data"
+      max_intraspecific: float or None
+      min_interspecific: float or None
+      nearest_neighbor: the congener species the closest sequence belongs
+          to, or None
+      gap: min_interspecific - max_intraspecific, or None
+    """
+    def insufficient(reason):
+        return {
+            "verdict": "insufficient_data",
+            "reason": reason,
+            "max_intraspecific": None,
+            "min_interspecific": None,
+            "nearest_neighbor": None,
+            "gap": None,
+        }
+
+    own_sequences = database.get_sequences_for_species(
+        conn, species_name, marker)
+    if len(own_sequences) < 2:
+        return insufficient("fewer than 2 sequences on file for this marker")
+
+    congener_sequences = database.get_congener_sequences(
+        conn, species_name, marker)
+    if not congener_sequences:
+        return insufficient("no congeners on file for this marker")
+
+    aligner = aligner or _default_aligner()
+
+    max_intra = 0.0
+    for seq_a, seq_b in itertools.combinations(own_sequences, 2):
+        distance, n_sites = p_distance(seq_a, seq_b, aligner)
+        if distance is not None:
+            max_intra = max(max_intra, distance)
+
+    min_inter = None
+    nearest_neighbor = None
+    for own_seq in own_sequences:
+        for other_species, other_seq in congener_sequences:
+            distance, n_sites = p_distance(own_seq, other_seq, aligner)
+            if distance is None:
+                continue
+            if min_inter is None or distance < min_inter:
+                min_inter = distance
+                nearest_neighbor = other_species
+
+    if min_inter is None:
+        return insufficient(
+            "no comparable (ungapped) alignment sites with any congener sequence")
+
+    gap = min_inter - max_intra
+    verdict = "clear_gap" if gap > 0 else "overlap"
+
+    return {
+        "verdict": verdict,
+        "reason": None,
+        "max_intraspecific": max_intra,
+        "min_interspecific": min_inter,
+        "nearest_neighbor": nearest_neighbor,
+        "gap": gap,
+    }
