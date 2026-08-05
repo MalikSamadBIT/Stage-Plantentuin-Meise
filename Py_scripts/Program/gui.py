@@ -41,10 +41,7 @@ app = ctk.CTk()
 app.geometry("1250x820")
 app.title("NCBI / BOLD Pipeline")
 
-# shared across the whole program (Fetch FASTA saving, Database tab,
-# Synonym search, Maps) - backend (SQLite file or MySQL server) is chosen
-# once in the Settings tab, see below. Falls back to the old "db_path" key
-# for configs saved before the MySQL option existed.
+# shared across the whole program (Fetch FASTA saving, Database tab, Synonym search, Maps) backend (SQLite file or MySQL server) is chosen once in the Settings tab
 db_config = database.DatabaseConfig()
 db_config.backend = _saved_config.get("db_backend", "sqlite")
 db_config.sqlite_path = _saved_config.get(
@@ -55,13 +52,10 @@ db_config.mysql_user = _saved_config.get("db_mysql_user", "")
 db_config.mysql_database = _saved_config.get("db_mysql_database", "")
 db_config.refresh_display()
 
-# "Add to Report" (Retrieval Rate/MSA/Synonym search) pushes snapshots here;
-# the Gap Report tab's "Report Contents" sub-tab lists/manages them.
+
 report_items = []
 
-# the "current species list" - Fetch FASTA/Synonym search/Gap Report can
-# each save their species list here and load it back in another tab, so the
-# same list doesn't need to be re-entered/re-picked in up to three places.
+
 shared_species = database.SpeciesList()
 
 

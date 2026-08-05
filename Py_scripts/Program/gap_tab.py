@@ -74,6 +74,16 @@ def build_gap_tab(
     last_rows = []
     last_target_markers = []
 
+    # observation counts don't depend on target markers - only the (fast,
+    # local) database-coverage check does - so re-running after just
+    # changing markers can reuse counts already fetched this session
+    # instead of hitting the network again. Keyed by (site, species,
+    # start_date, end_date); cleared when the app closes, not persisted -
+    # observation counts grow over time as new sightings get logged, so an
+    # in-memory, session-only cache avoids ever silently going stale across
+    # runs on a different day.
+    observation_cache = {}
+
     # SPECIES INPUT-----------------------------------------------------
 
     ctk.CTkLabel(analysis_tab, text="🎯 SPECIES TO CHECK", font=(
@@ -222,6 +232,13 @@ def build_gap_tab(
     extra_markers_entry = ctk.CTkEntry(extra_markers_row)
     extra_markers_entry.pack(side="left", fill="x", expand=True)
 
+    force_refresh_var = ctk.BooleanVar(value=False)
+    ctk.CTkCheckBox(
+        analysis_tab,
+        text="Force refresh (ignore observation counts cached this session)",
+        variable=force_refresh_var
+    ).pack(anchor="w", padx=10, pady=(0, 5))
+
     run_button = ctk.CTkButton(analysis_tab, text="Run Gap Analysis")
     run_button.pack(fill="x", padx=10, pady=(5, 2))
 
@@ -305,8 +322,45 @@ def build_gap_tab(
             values.append(row["status_label"])
             tree.insert("", "end", values=values, tags=(row["status"],))
 
-    def run_worker(species_list, site_key, start_date, end_date, target_markers):
+    def run_worker(
+        species_list, site_key, start_date, end_date, target_markers, force_refresh
+    ):
         site = SITES[site_key]
+
+        def cache_key(name):
+            return (site_key, name, start_date, end_date)
+
+        if force_refresh:
+            cached_names = []
+            to_fetch = list(species_list)
+        else:
+            cached_names = [
+                name for name in species_list if cache_key(name) in observation_cache
+            ]
+            to_fetch = [
+                name for name in species_list
+                if cache_key(name) not in observation_cache
+            ]
+
+        observation_counts = {}
+        resolved_via = {}
+
+        for name in cached_names:
+            count, synonym_used = observation_cache[cache_key(name)]
+            observation_counts[name] = count
+            if synonym_used:
+                resolved_via[name] = synonym_used
+
+        if cached_names:
+            parent.after(
+                0,
+                lambda: status_label.configure(
+                    text=f"Reusing {len(cached_names)} cached observation "
+                         f"count(s), fetching {len(to_fetch)} from "
+                         "network...",
+                    text_color="white"
+                )
+            )
 
         def progress(completed, total, name):
             parent.after(
@@ -317,24 +371,35 @@ def build_gap_tab(
                 )
             )
 
-        # known synonyms on file (from a previous Synonym search "Save
-        # Synonyms to Database") let a species that doesn't match the
-        # observation site under the name as typed still get a real count
-        # instead of falling back to "no data" - same idea as
-        # count_sequences_by_marker already applies on the sequence side.
-        synonym_conn = database.connect(db_config) if db_config.is_configured() else None
-        get_synonyms = (
-            (lambda name: database.get_synonym_names(synonym_conn, name))
-            if synonym_conn is not None else None
-        )
-        try:
-            observation_counts, resolved_via = fetch_observation_counts_batch(
-                site["base_url"], species_list, start_date, end_date,
-                site["map_type"], progress=progress, get_synonyms=get_synonyms
+        if to_fetch:
+            # known synonyms on file (from a previous Synonym search "Save
+            # Synonyms to Database") let a species that doesn't match the
+            # observation site under the name as typed still get a real
+            # count instead of falling back to "no data" - same idea as
+            # count_sequences_by_marker already applies on the sequence
+            # side.
+            synonym_conn = (
+                database.connect(db_config) if db_config.is_configured() else None
             )
-        finally:
-            if synonym_conn is not None:
-                synonym_conn.close()
+            get_synonyms = (
+                (lambda name: database.get_synonym_names(synonym_conn, name))
+                if synonym_conn is not None else None
+            )
+            try:
+                fetched_counts, fetched_resolved_via = fetch_observation_counts_batch(
+                    site["base_url"], to_fetch, start_date, end_date,
+                    site["map_type"], progress=progress, get_synonyms=get_synonyms
+                )
+            finally:
+                if synonym_conn is not None:
+                    synonym_conn.close()
+
+            for name, count in fetched_counts.items():
+                observation_counts[name] = count
+                synonym_used = fetched_resolved_via.get(name)
+                if synonym_used:
+                    resolved_via[name] = synonym_used
+                observation_cache[cache_key(name)] = (count, synonym_used)
 
         rows = gap_analysis.build_gap_rows(
             species_list, observation_counts, db_config, target_markers)
@@ -357,8 +422,15 @@ def build_gap_tab(
                 f" ({len(resolved_via)} resolved via a known synonym)"
                 if resolved_via else ""
             )
+            cache_note = (
+                f" ({len(cached_names)} from this session's cache)"
+                if cached_names else ""
+            )
             status_label.configure(
-                text=f"Done - {len(rows)} species checked.{note}{synonym_note}",
+                text=(
+                    f"Done - {len(rows)} species checked."
+                    f"{note}{synonym_note}{cache_note}"
+                ),
                 text_color="white"
             )
             refresh_items_list()
@@ -394,16 +466,17 @@ def build_gap_tab(
             return
 
         site_key = site_var.get()
+        force_refresh = force_refresh_var.get()
 
         run_button.configure(state="disabled", text="Running...")
-        status_label.configure(
-            text=f"Checking observations... 0/{len(species_list)}",
-            text_color="white"
-        )
+        status_label.configure(text="Running gap analysis...", text_color="white")
 
         threading.Thread(
             target=run_worker,
-            args=(species_list, site_key, start_date, end_date, target_markers),
+            args=(
+                species_list, site_key, start_date, end_date, target_markers,
+                force_refresh
+            ),
             daemon=True
         ).start()
 
