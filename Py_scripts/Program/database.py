@@ -78,7 +78,8 @@ class SpeciesList:
     def __init__(self):
         self.names = []
         self.source = ""
-        self.display_var = ctk.StringVar(value="No shared species list set yet.")
+        self.display_var = ctk.StringVar(
+            value="No shared species list set yet.")
 
     def trace_add(self, mode, callback):
         return self.display_var.trace_add(mode, callback)
@@ -356,7 +357,8 @@ class MySQLConn:
 def _sequences_needs_migration(conn):
     # a pre-species/synonyms database has "species" (plain text) but no
     # "species_id" on the sequences table
-    cols = {row["name"] for row in conn.execute("PRAGMA table_info(sequences)")}
+    cols = {row["name"]
+            for row in conn.execute("PRAGMA table_info(sequences)")}
     return "species" in cols and "species_id" not in cols
 
 
@@ -551,97 +553,6 @@ def get_synonym_names(conn, species_name):
     return [row["name"] for row in rows]
 
 
-def get_sequences_for_species(conn, species_name, marker):
-    """
-    Returns [sequence, ...] on file for the given species and marker,
-    matched the same way count_sequences_by_marker matches species names
-    (canonical name, synonym, or queried_as).
-    """
-    rows = conn.execute("""
-        SELECT sequence
-        FROM sequences_view
-        WHERE marker = ?
-          AND (
-            LOWER(species) = LOWER(?)
-            OR LOWER(queried_as) = LOWER(?)
-            OR LOWER(species) IN (
-                SELECT LOWER(species) FROM synonyms_view WHERE LOWER(name) = LOWER(?)
-            )
-          )
-    """, (marker, species_name, species_name, species_name)).fetchall()
-
-    return [row["sequence"] for row in rows]
-
-
-def _species_in_genus(conn, genus):
-    """
-    Canonical names on file whose first word (the genus) matches genus,
-    case-insensitively. Shared by get_congener_sequences (which then
-    excludes the target species) and get_genus_sequences (which doesn't).
-    """
-    genus = genus.strip().lower()
-    rows = conn.execute("SELECT canonical_name FROM species").fetchall()
-    return [
-        row["canonical_name"] for row in rows
-        if row["canonical_name"].split()[0].lower() == genus
-    ]
-
-
-def get_congener_sequences(conn, species_name, marker):
-    """
-    Returns [(other_species_name, sequence), ...] for every sequence on
-    file, for the given marker, belonging to a different species in the
-    same genus as species_name - genus is derived from the first word of
-    canonical_name, so species_name is expected to already be a canonical
-    name (as opposed to a synonym) here. Excludes species_name itself.
-    Empty list if no congeners are on file - callers treat that as
-    "insufficient data", not an error.
-    """
-    genus = species_name.strip().split()[0]
-    target = species_name.strip().lower()
-
-    congener_names = [
-        name for name in _species_in_genus(conn, genus)
-        if name.strip().lower() != target
-    ]
-
-    if not congener_names:
-        return []
-
-    placeholders = ",".join("?" for _ in congener_names)
-    rows = conn.execute(f"""
-        SELECT species, sequence
-        FROM sequences_view
-        WHERE marker = ?
-          AND species IN ({placeholders})
-    """, (marker, *congener_names)).fetchall()
-
-    return [(row["species"], row["sequence"]) for row in rows]
-
-
-def get_genus_sequences(conn, genus, marker):
-    """
-    Returns [(species_name, accession, sequence), ...] for every sequence
-    on file, for the given marker, belonging to any species in genus
-    (including all of them, unlike get_congener_sequences which excludes
-    one target species). Used to build a genus-wide neighbor-joining guide
-    tree - see gap_analysis.build_genus_guide_tree.
-    """
-    member_names = _species_in_genus(conn, genus)
-    if not member_names:
-        return []
-
-    placeholders = ",".join("?" for _ in member_names)
-    rows = conn.execute(f"""
-        SELECT species, accession, sequence
-        FROM sequences_view
-        WHERE marker = ?
-          AND species IN ({placeholders})
-    """, (marker, *member_names)).fetchall()
-
-    return [(row["species"], row["accession"], row["sequence"]) for row in rows]
-
-
 def count_sequences_by_marker(conn, species_name):
     """
     Returns [(marker, count), ...] for the given species name, matched
@@ -664,6 +575,16 @@ def count_sequences_by_marker(conn, species_name):
     return [(row["marker"], row["count"]) for row in rows]
 
 
+def get_congener_sequences(conn, species_name, marker):
+    """
+    Returns [(other_species_name, sequence), ...] for every sequence on
+    file, for the given marker, belonging to a different species in the
+    same genus as species_name.
+    """
+    genus = species_name.split()[0].lower()
+    ...
+
+
 def extract_sequence(fasta_text):
     lines = fasta_text.strip().splitlines()
     return "".join(lines[1:])
@@ -684,7 +605,8 @@ def insert_sequences(conn, run_id, results):
         species_id = species_id_cache[species]
 
         rows.append((
-            run_id, species_id, marker, meta.get("source"), meta.get("accession"),
+            run_id, species_id, marker, meta.get(
+                "source"), meta.get("accession"),
             meta.get("organism"), meta.get("title"), meta.get("length"),
             meta.get("geo_loc"), meta.get(
                 "lat_lon"), meta.get("collection_date"),
