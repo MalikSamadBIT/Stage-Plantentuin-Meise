@@ -573,6 +573,20 @@ def get_sequences_for_species(conn, species_name, marker):
     return [row["sequence"] for row in rows]
 
 
+def _species_in_genus(conn, genus):
+    """
+    Canonical names on file whose first word (the genus) matches genus,
+    case-insensitively. Shared by get_congener_sequences (which then
+    excludes the target species) and get_genus_sequences (which doesn't).
+    """
+    genus = genus.strip().lower()
+    rows = conn.execute("SELECT canonical_name FROM species").fetchall()
+    return [
+        row["canonical_name"] for row in rows
+        if row["canonical_name"].split()[0].lower() == genus
+    ]
+
+
 def get_congener_sequences(conn, species_name, marker):
     """
     Returns [(other_species_name, sequence), ...] for every sequence on
@@ -583,15 +597,12 @@ def get_congener_sequences(conn, species_name, marker):
     Empty list if no congeners are on file - callers treat that as
     "insufficient data", not an error.
     """
-    genus = species_name.strip().split()[0].lower()
+    genus = species_name.strip().split()[0]
     target = species_name.strip().lower()
 
-    species_rows = conn.execute(
-        "SELECT canonical_name FROM species").fetchall()
     congener_names = [
-        row["canonical_name"] for row in species_rows
-        if row["canonical_name"].split()[0].lower() == genus
-        and row["canonical_name"].strip().lower() != target
+        name for name in _species_in_genus(conn, genus)
+        if name.strip().lower() != target
     ]
 
     if not congener_names:
@@ -606,6 +617,29 @@ def get_congener_sequences(conn, species_name, marker):
     """, (marker, *congener_names)).fetchall()
 
     return [(row["species"], row["sequence"]) for row in rows]
+
+
+def get_genus_sequences(conn, genus, marker):
+    """
+    Returns [(species_name, accession, sequence), ...] for every sequence
+    on file, for the given marker, belonging to any species in genus
+    (including all of them, unlike get_congener_sequences which excludes
+    one target species). Used to build a genus-wide neighbor-joining guide
+    tree - see gap_analysis.build_genus_guide_tree.
+    """
+    member_names = _species_in_genus(conn, genus)
+    if not member_names:
+        return []
+
+    placeholders = ",".join("?" for _ in member_names)
+    rows = conn.execute(f"""
+        SELECT species, accession, sequence
+        FROM sequences_view
+        WHERE marker = ?
+          AND species IN ({placeholders})
+    """, (marker, *member_names)).fetchall()
+
+    return [(row["species"], row["accession"], row["sequence"]) for row in rows]
 
 
 def count_sequences_by_marker(conn, species_name):

@@ -2,7 +2,9 @@ import io
 import itertools
 
 import matplotlib.pyplot as plt
+from Bio import Phylo
 from Bio.Align import PairwiseAligner
+from Bio.Phylo.TreeConstruction import DistanceMatrix, DistanceTreeConstructor
 
 import database
 
@@ -257,4 +259,95 @@ def compute_barcode_gap(conn, species_name, marker, aligner=None):
         "min_interspecific": min_inter,
         "nearest_neighbor": nearest_neighbor,
         "gap": gap,
+    }
+
+
+def _unique_tip_label(species, accession, seen_labels):
+    # one tip per specimen, not per species - collapsing to species would
+    # hide exactly the thing a guide tree is for (a specimen sitting on
+    # the wrong branch). accession disambiguates same-species specimens;
+    # falls back to a counter for rows without one (e.g. hand-inserted
+    # test data).
+    base = f"{species} ({accession})" if accession else species
+    label = base
+    n = 2
+    while label in seen_labels:
+        label = f"{base} #{n}"
+        n += 1
+    seen_labels.add(label)
+    return label
+
+
+def _render_guide_tree_png(tree, genus, marker):
+    n_tips = tree.count_terminals()
+    fig = plt.figure(figsize=(8, max(3, 0.3 * n_tips)), dpi=150)
+    ax = fig.add_subplot(1, 1, 1)
+    Phylo.draw(tree, do_show=False, axes=ax)
+    ax.set_title(
+        f"{genus} ({marker}) - neighbor-joining guide tree\n"
+        "p-distance, no bootstrap support - not a rigorous phylogeny",
+        fontsize=10,
+    )
+
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def build_genus_guide_tree(conn, genus, marker, aligner=None):
+    """
+    Builds a neighbor-joining guide tree (Bio.Phylo, p-distance + NJ) from
+    every sequence on file for the given genus and marker - one tip per
+    specimen. This is a guide tree for visually spotting misidentified or
+    cryptic specimens, not a rigorous phylogeny: no bootstrap support, no
+    substitution model.
+
+    Returns a dict:
+      status: "ok" | "insufficient_data"
+      reason: set when status is "insufficient_data"
+      tree: a Bio.Phylo tree object, or None
+      png: PNG bytes of the rendered tree, or None
+    """
+    records = database.get_genus_sequences(conn, genus, marker)
+
+    if len(records) < 3:
+        return {
+            "status": "insufficient_data",
+            "reason": (
+                f"only {len(records)} sequence(s) on file for genus "
+                f"{genus!r}/{marker} - neighbor joining needs at least 3"
+            ),
+            "tree": None,
+            "png": None,
+        }
+
+    aligner = aligner or _default_aligner()
+
+    seen_labels = set()
+    labels = [
+        _unique_tip_label(species, accession, seen_labels)
+        for species, accession, _sequence in records
+    ]
+    sequences = [sequence for _species, _accession, sequence in records]
+
+    n = len(sequences)
+    matrix = [[0.0] * (i + 1) for i in range(n)]
+    for i in range(1, n):
+        for j in range(i):
+            distance, _n_sites = p_distance(sequences[i], sequences[j], aligner)
+            # no comparable sites between this pair - treat as maximally
+            # different rather than crashing the whole tree over one bad pair
+            matrix[i][j] = distance if distance is not None else 1.0
+
+    dm = DistanceMatrix(labels, matrix)
+    tree = DistanceTreeConstructor().nj(dm)
+
+    return {
+        "status": "ok",
+        "reason": None,
+        "tree": tree,
+        "png": _render_guide_tree_png(tree, genus, marker),
     }
