@@ -1,5 +1,6 @@
 import io
 import itertools
+import math
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -192,16 +193,87 @@ def p_distance(seq1, seq2, aligner=None):
     return n_diff / n_sites, n_sites
 
 
-def compute_barcode_gap(conn, species_name, marker, aligner=None):
+# purine<->purine (A<->G) or pyrimidine<->pyrimidine (C<->T) substitutions -
+# the two kinds of change the Kimura 2-parameter formula treats separately
+# from everything else (transversions), since they occur at different rates
+# in real sequence evolution.
+_TRANSITIONS = frozenset({("A", "G"), ("G", "A"), ("C", "T"), ("T", "C")})
+
+
+def k2p_distance(seq1, seq2, aligner=None):
+    """
+    Returns (distance, n_sites): the Kimura 2-parameter distance (Kimura,
+    1980), which corrects p-distance for transition/transversion bias -
+    see gap_analysis module docs. n_sites is the number of comparable
+    (non-gap) aligned columns, same meaning as in p_distance.
+
+    Returns (None, n_sites) if there were no comparable columns, or if the
+    sequences are too diverged for the correction to be mathematically
+    defined (the formula's logarithms go out of domain when transition/
+    transversion fractions are high enough - this happens on genuinely
+    saturated, highly diverged pairs, not as a normal case).
+    """
+    seq1 = "".join(seq1.split())
+    seq2 = "".join(seq2.split())
+
+    aligner = aligner or _default_aligner()
+    alignment = aligner.align(seq1, seq2)[0]
+    a1, a2 = str(alignment[0]), str(alignment[1])
+
+    n_sites = 0
+    n_transitions = 0
+    n_transversions = 0
+    for c1, c2 in zip(a1, a2):
+        if c1 == "-" or c2 == "-":
+            continue
+        n_sites += 1
+        if c1 != c2:
+            if (c1, c2) in _TRANSITIONS:
+                n_transitions += 1
+            else:
+                n_transversions += 1
+
+    if n_sites == 0:
+        return None, 0
+
+    p = n_transitions / n_sites
+    q = n_transversions / n_sites
+
+    term1 = 1 - 2 * p - q
+    term2 = 1 - 2 * q
+    if term1 <= 0 or term2 <= 0:
+        return None, n_sites
+
+    distance = -0.5 * math.log(term1) - 0.25 * math.log(term2)
+    return distance, n_sites
+
+
+# Distance methods selectable from the barcode-gap drill-down (see
+# gap_tab.py) - both take (seq1, seq2, aligner) and return (distance,
+# n_sites), so they're interchangeable anywhere a distance_method is
+# threaded through.
+DISTANCE_METHODS = {
+    "p-distance": p_distance,
+    "K2P": k2p_distance,
+}
+DEFAULT_DISTANCE_METHOD = "p-distance"
+
+
+def compute_barcode_gap(conn, species_name, marker,
+                         distance_method=DEFAULT_DISTANCE_METHOD, aligner=None):
     """
     Assesses whether species_name has a barcode gap at the given marker:
     the max pairwise distance among its own sequences (intraspecific)
     versus the min pairwise distance to any congener sequence on file
     (interspecific, scoped to genus - see database.get_congener_sequences).
 
+    distance_method: a key into DISTANCE_METHODS - "p-distance" (default)
+        or "K2P".
+
     Returns a dict:
       verdict: one of BARCODE_GAP_VERDICTS
       reason: set (a short explanation) when verdict is "insufficient_data"
+      distance_method: the distance_method this result was computed with
       max_intraspecific: float or None
       min_interspecific: float or None
       nearest_neighbor: the congener species the closest sequence belongs
@@ -212,11 +284,14 @@ def compute_barcode_gap(conn, species_name, marker, aligner=None):
         return {
             "verdict": "insufficient_data",
             "reason": reason,
+            "distance_method": distance_method,
             "max_intraspecific": None,
             "min_interspecific": None,
             "nearest_neighbor": None,
             "gap": None,
         }
+
+    distance_fn = DISTANCE_METHODS[distance_method]
 
     own_sequences = database.get_sequences_for_species(
         conn, species_name, marker)
@@ -232,7 +307,7 @@ def compute_barcode_gap(conn, species_name, marker, aligner=None):
 
     max_intra = 0.0
     for seq_a, seq_b in itertools.combinations(own_sequences, 2):
-        distance, n_sites = p_distance(seq_a, seq_b, aligner)
+        distance, n_sites = distance_fn(seq_a, seq_b, aligner)
         if distance is not None:
             max_intra = max(max_intra, distance)
 
@@ -240,7 +315,7 @@ def compute_barcode_gap(conn, species_name, marker, aligner=None):
     nearest_neighbor = None
     for own_seq in own_sequences:
         for other_species, other_seq in congener_sequences:
-            distance, n_sites = p_distance(own_seq, other_seq, aligner)
+            distance, n_sites = distance_fn(own_seq, other_seq, aligner)
             if distance is None:
                 continue
             if min_inter is None or distance < min_inter:
@@ -257,6 +332,7 @@ def compute_barcode_gap(conn, species_name, marker, aligner=None):
     return {
         "verdict": verdict,
         "reason": None,
+        "distance_method": distance_method,
         "max_intraspecific": max_intra,
         "min_interspecific": min_inter,
         "nearest_neighbor": nearest_neighbor,
@@ -280,7 +356,7 @@ def _unique_tip_label(species, accession, seen_labels):
     return label
 
 
-def _render_guide_tree_png(tree, genus, marker):
+def _render_guide_tree_png(tree, genus, marker, distance_method):
     # Uses the Figure/FigureCanvasAgg object API directly rather than
     # pyplot's plt.figure()/plt.close() - this can run on a background
     # thread (see gap_tab.py's barcode-gap drill-down window), and pyplot's
@@ -294,7 +370,7 @@ def _render_guide_tree_png(tree, genus, marker):
     Phylo.draw(tree, do_show=False, axes=ax)
     ax.set_title(
         f"{genus} ({marker}) - neighbor-joining guide tree\n"
-        "p-distance, no bootstrap support - not a rigorous phylogeny",
+        f"{distance_method}, no bootstrap support - not a rigorous phylogeny",
         fontsize=10,
     )
 
@@ -305,17 +381,22 @@ def _render_guide_tree_png(tree, genus, marker):
     return buf.getvalue()
 
 
-def build_genus_guide_tree(conn, genus, marker, aligner=None):
+def build_genus_guide_tree(conn, genus, marker,
+                            distance_method=DEFAULT_DISTANCE_METHOD, aligner=None):
     """
-    Builds a neighbor-joining guide tree (Bio.Phylo, p-distance + NJ) from
-    every sequence on file for the given genus and marker - one tip per
+    Builds a neighbor-joining guide tree (Bio.Phylo, NJ) from every
+    sequence on file for the given genus and marker - one tip per
     specimen. This is a guide tree for visually spotting misidentified or
     cryptic specimens, not a rigorous phylogeny: no bootstrap support, no
     substitution model.
 
+    distance_method: a key into DISTANCE_METHODS - "p-distance" (default)
+        or "K2P".
+
     Returns a dict:
       status: "ok" | "insufficient_data"
       reason: set when status is "insufficient_data"
+      distance_method: the distance_method this result was computed with
       tree: a Bio.Phylo tree object, or None
       png: PNG bytes of the rendered tree, or None
     """
@@ -328,10 +409,12 @@ def build_genus_guide_tree(conn, genus, marker, aligner=None):
                 f"only {len(records)} sequence(s) on file for genus "
                 f"{genus!r}/{marker} - neighbor joining needs at least 3"
             ),
+            "distance_method": distance_method,
             "tree": None,
             "png": None,
         }
 
+    distance_fn = DISTANCE_METHODS[distance_method]
     aligner = aligner or _default_aligner()
 
     seen_labels = set()
@@ -345,9 +428,11 @@ def build_genus_guide_tree(conn, genus, marker, aligner=None):
     matrix = [[0.0] * (i + 1) for i in range(n)]
     for i in range(1, n):
         for j in range(i):
-            distance, _n_sites = p_distance(sequences[i], sequences[j], aligner)
-            # no comparable sites between this pair - treat as maximally
-            # different rather than crashing the whole tree over one bad pair
+            distance, _n_sites = distance_fn(sequences[i], sequences[j], aligner)
+            # no comparable sites between this pair (or, for K2P, too
+            # diverged for the correction to be defined) - treat as
+            # maximally different rather than crashing the whole tree over
+            # one bad pair
             matrix[i][j] = distance if distance is not None else 1.0
 
     dm = DistanceMatrix(labels, matrix)
@@ -356,6 +441,7 @@ def build_genus_guide_tree(conn, genus, marker, aligner=None):
     return {
         "status": "ok",
         "reason": None,
+        "distance_method": distance_method,
         "tree": tree,
-        "png": _render_guide_tree_png(tree, genus, marker),
+        "png": _render_guide_tree_png(tree, genus, marker, distance_method),
     }

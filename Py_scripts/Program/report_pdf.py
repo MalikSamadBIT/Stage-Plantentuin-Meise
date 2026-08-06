@@ -406,13 +406,14 @@ def build_report_pdf(
                 f"{section_num}. Barcode gap - {a['species']}", SECTION_STYLE))
 
             verdict_label = gap_analysis.BARCODE_GAP_VERDICTS[a["verdict"]]
+            method = a.get("distance_method", gap_analysis.DEFAULT_DISTANCE_METHOD)
             if a["verdict"] == "insufficient_data":
                 summary = f"Verdict: {verdict_label} - {a['reason']}"
             else:
                 summary = (
-                    f"Verdict: {verdict_label}. Max intraspecific distance "
-                    f"{a['max_intraspecific']:.4f}, min interspecific distance "
-                    f"{a['min_interspecific']:.4f} (nearest neighbor: "
+                    f"Verdict: {verdict_label} ({method}). Max intraspecific "
+                    f"distance {a['max_intraspecific']:.4f}, min interspecific "
+                    f"distance {a['min_interspecific']:.4f} (nearest neighbor: "
                     f"{a['nearest_neighbor']}), gap {a['gap']:+.4f}."
                 )
             story.append(Paragraph(summary, ABSTRACT_STYLE))
