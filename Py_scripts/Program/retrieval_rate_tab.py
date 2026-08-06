@@ -8,6 +8,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+from common import read_csv_robust
+
 # Colorblind-friendly categorical palette
 CB_COLORS = ["#2a78d6", "#1baf7a", "#eda100",
              "#008300", "#4a3aa7", "#e34948", "#e87ba4", "#eb6834"]
@@ -217,7 +219,7 @@ def build_retrieval_rate_tab(parent, get_data, root=None, report_items=None):
             return
 
         try:
-            new_df = pd.read_csv(file_path)
+            new_df = read_csv_robust(file_path)
         except Exception as e:
             status_label.configure(text=f"Failed to load CSV: {e}")
             return

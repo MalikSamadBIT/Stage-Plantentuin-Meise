@@ -4,6 +4,8 @@ import os
 import json
 import re
 
+import pandas as pd
+
 
 # RATE LIMITER-----------------------------------------------
 # Enforces a global minimum gap between requests
@@ -26,15 +28,66 @@ class RateLimiter:
             self.last_call = time.time()
 
 
-# HYBRID MARKER STRIPPING-----------------------------------------
-# Botanical hybrid names are marked with a "×" multiplication sign
-# (U+00D7), e.g. "Equisetum ×litorale" or "×Schedolium loliaceum" -
-# stripping it is opt-in since GenBank/BOLD records don't consistently
-# include it either way, so whether it helps or hurts matching depends
-# on the dataset.
+# ENCODING-SAFE CSV READING-----------------------------------------
+# pandas.read_csv() without an explicit encoding falls back to the OS
+# locale's default (cp1252 on most Windows setups), which silently
+# mojibakes any non-ASCII character - accented names, the hybrid × marker,
+# etc. - in a file that was actually saved as UTF-8, the standard/default
+# export encoding from Excel, Google Sheets, and most database/GIS tools.
+# Tries UTF-8 first and only falls back to cp1252 if the file genuinely
+# isn't UTF-8, rather than guessing wrong by default.
 
-def strip_hybrid_marker(name):
-    return re.sub(r"\s+", " ", name.replace("×", "")).strip()
+def read_csv_robust(path, **kwargs):
+    try:
+        return pd.read_csv(path, encoding="utf-8", **kwargs)
+    except UnicodeDecodeError:
+        return pd.read_csv(path, encoding="cp1252", **kwargs)
+
+
+def fix_mojibake(text):
+    """
+    Reverses UTF-8 bytes that were already mis-decoded as cp1252/Latin-1
+    before this app ever saw them (e.g. a name saved correctly as UTF-8 by
+    one tool, then opened and re-saved by another tool that assumed
+    cp1252) - the classic double-encoding signature, e.g. "×" (U+00D7)
+    turning into "Ã—". read_csv_robust only fixes *this app's own* read of
+    a file; this fixes names that were corrupted before the file was ever
+    written.
+
+    Round-trips through cp1252-encode / utf-8-decode and only applies the
+    result if that succeeds - genuinely clean text (plain ASCII, or a
+    correctly-decoded "×") fails the round trip immediately and is
+    returned unchanged, since it won't coincidentally form valid UTF-8
+    byte sequences.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    try:
+        return text.encode("cp1252").decode("utf-8")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return text
+
+
+# CHARACTER STRIPPING-----------------------------------------
+# General-purpose: species lists sometimes carry characters GenBank/BOLD
+# records don't consistently match on - botanical hybrid names use a "×"
+# multiplication sign (U+00D7), e.g. "Equisetum ×litorale" or "×Schedolium
+# loliaceum", but messy CSV data can have other stray symbols too.
+# Stripping is opt-in and user-specified rather than hardcoded to "×",
+# since whether (and what) to strip depends on the dataset.
+
+def strip_characters(name, chars):
+    """
+    Removes every occurrence of any character in `chars` from name, then
+    collapses whitespace left behind. `chars` is treated as a set of
+    individual characters (like str.translate), not a literal substring -
+    e.g. chars="×*?" strips each of those three characters independently
+    wherever it appears, not the three-character sequence "×*?" as a whole.
+    """
+    if not chars:
+        return name
+    table = str.maketrans("", "", chars)
+    return re.sub(r"\s+", " ", name.translate(table)).strip()
 
 
 # FILENAME SANITIZING-----------------------------------------

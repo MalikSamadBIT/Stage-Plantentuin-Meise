@@ -7,7 +7,10 @@ import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from common import RateLimiter, load_config, save_config, strip_hybrid_marker
+from common import (
+    RateLimiter, load_config, save_config, strip_characters,
+    read_csv_robust, fix_mojibake
+)
 from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from bold_client import BoldBlockedError, search_and_fetch_bold
 from output import (
@@ -230,7 +233,7 @@ def load():
     global df
     path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
     file_path.set(path)
-    df = pd.read_csv(path)
+    df = read_csv_robust(path)
 
 
 def choose_output():
@@ -255,8 +258,14 @@ def compute_species_list():
         if s.strip()
     ]
 
-    if strip_hybrid_var.get():
-        species_list = [strip_hybrid_marker(s) for s in species_list]
+    # repairs names that were already mojibaked before reaching this app
+    # (see fix_mojibake) - independent of read_csv_robust, which only
+    # covers this app's own read of the file
+    species_list = [fix_mojibake(s) for s in species_list]
+
+    if strip_chars_var.get():
+        chars = strip_chars_entry.get()
+        species_list = [strip_characters(s, chars) for s in species_list]
 
     return list(dict.fromkeys(s for s in species_list if s))
 
@@ -344,7 +353,7 @@ def load_resume_file():
     baseline_note = ""
     if os.path.exists(summary_path):
         try:
-            resume_baseline_summary = pd.read_csv(summary_path)
+            resume_baseline_summary = read_csv_robust(summary_path)
         except Exception as e:
             resume_baseline_summary = None
             baseline_note = f" (couldn't read summary.csv alongside it: {e})"
@@ -761,14 +770,27 @@ db_config.trace_add("write", lambda *_: refresh_db_status())
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
 
-strip_hybrid_var = ctk.BooleanVar(value=False)
-
-ctk.CTkCheckBox(
+ctk.CTkLabel(settings_scroll, text="Strip characters from species names").pack(
+    anchor="w", pady=(0, 2))
+ctk.CTkLabel(
     settings_scroll,
-    text="Strip hybrid marker (×) from species names before searching, "
-         "e.g. \"Equisetum ×litorale\" -> \"Equisetum litorale\"",
-    variable=strip_hybrid_var
-).pack(anchor="w", pady=(0, 10))
+    text="Some datasets include characters GenBank/BOLD records don't "
+         "consistently match on - e.g. botanical hybrid names use a × "
+         "sign, as in \"Equisetum ×litorale\". Each character typed below "
+         "is removed independently wherever it appears (not as a single "
+         "combined phrase), e.g. \"×?*\" would strip all three of those "
+         "characters.",
+    justify="left", text_color="gray", wraplength=700, font=("Arial", 11)
+).pack(anchor="w", pady=(0, 5))
+
+strip_chars_var = ctk.BooleanVar(value=False)
+ctk.CTkCheckBox(
+    settings_scroll, text="Strip these characters:", variable=strip_chars_var
+).pack(anchor="w", pady=(0, 2))
+
+strip_chars_entry = ctk.CTkEntry(settings_scroll, placeholder_text="e.g. ×")
+strip_chars_entry.insert(0, "×")
+strip_chars_entry.pack(fill="x", pady=(0, 10))
 
 ctk.CTkLabel(settings_scroll, text="Min. interval between requests (s)").pack(
     anchor="w")

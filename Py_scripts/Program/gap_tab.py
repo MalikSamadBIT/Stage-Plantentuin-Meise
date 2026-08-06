@@ -14,6 +14,7 @@ import database
 import gap_analysis
 import report_docx
 import report_pdf
+from common import read_csv_robust
 from geoloc_client import SITES, fetch_observation_counts_batch
 from output import parse_no_matches_table
 
@@ -175,7 +176,7 @@ def build_gap_tab(
 
         if csv_path.get():
             try:
-                csv_df = pd.read_csv(csv_path.get())
+                csv_df = read_csv_robust(csv_path.get())
                 species_list += list(csv_df["Name"])
             except Exception as e:
                 status_label.configure(

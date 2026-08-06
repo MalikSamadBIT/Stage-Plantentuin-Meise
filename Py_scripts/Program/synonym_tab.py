@@ -9,7 +9,7 @@ import customtkinter as ctk
 import pandas as pd
 
 import database
-from common import RateLimiter
+from common import RateLimiter, read_csv_robust
 from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from output import parse_no_matches_table
 from synonym_client import search_synonyms
@@ -167,7 +167,7 @@ def build_synonym_tab(
 
         if csv_path.get():
             try:
-                df = pd.read_csv(csv_path.get())
+                df = read_csv_robust(csv_path.get())
                 species_list += list(df["Name"])
             except Exception as e:
                 status_label.configure(
