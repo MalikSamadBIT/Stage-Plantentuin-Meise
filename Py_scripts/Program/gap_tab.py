@@ -337,6 +337,13 @@ def build_gap_tab(
         ctk.CTkLabel(top_row, text="Marker:").pack(side="left", padx=(0, 6))
         marker_var = ctk.StringVar(value=target_markers[0])
 
+        distance_row = ctk.CTkFrame(win, fg_color="transparent")
+        distance_row.pack(fill="x", padx=10, pady=(0, 5))
+        ctk.CTkLabel(distance_row, text="Distance metric:").pack(
+            side="left", padx=(0, 6))
+        distance_method_var = ctk.StringVar(
+            value=gap_analysis.DEFAULT_DISTANCE_METHOD)
+
         win_status = ctk.CTkLabel(win, text="", text_color="gray")
         win_status.pack(anchor="w", padx=10)
 
@@ -356,13 +363,14 @@ def build_gap_tab(
 
         last_result = {}
 
-        def worker(marker):
+        def worker(marker, distance_method):
             conn = database.connect(db_config)
             try:
-                assessment = gap_analysis.compute_barcode_gap(conn, species, marker)
+                assessment = gap_analysis.compute_barcode_gap(
+                    conn, species, marker, distance_method=distance_method)
                 genus = species.strip().split()[0]
                 tree_result = gap_analysis.build_genus_guide_tree(
-                    conn, genus, marker)
+                    conn, genus, marker, distance_method=distance_method)
             finally:
                 conn.close()
 
@@ -370,6 +378,7 @@ def build_gap_tab(
                 last_result.clear()
                 last_result.update({
                     "species": species, "marker": marker,
+                    "distance_method": distance_method,
                     "assessment": assessment, "tree_result": tree_result,
                 })
 
@@ -380,11 +389,11 @@ def build_gap_tab(
                     lines.append(f"Reason: {assessment['reason']}")
                 else:
                     lines.append(
-                        "Max intraspecific p-distance: "
+                        f"Max intraspecific {distance_method}: "
                         f"{assessment['max_intraspecific']:.4f}"
                     )
                     lines.append(
-                        "Min interspecific p-distance: "
+                        f"Min interspecific {distance_method}: "
                         f"{assessment['min_interspecific']:.4f} "
                         f"(nearest neighbor: {assessment['nearest_neighbor']})"
                     )
@@ -409,14 +418,22 @@ def build_gap_tab(
 
         def run(*_):
             marker = marker_var.get()
+            distance_method = distance_method_var.get()
             win_status.configure(text="Computing...", text_color="white")
             stats_label.configure(text="")
             _render_tree_image(image_frame, None)
             add_report_button.configure(state="disabled")
-            threading.Thread(target=worker, args=(marker,), daemon=True).start()
+            threading.Thread(
+                target=worker, args=(marker, distance_method), daemon=True
+            ).start()
 
         ctk.CTkSegmentedButton(
             top_row, values=target_markers, variable=marker_var, command=run
+        ).pack(side="left")
+
+        ctk.CTkSegmentedButton(
+            distance_row, values=list(gap_analysis.DISTANCE_METHODS),
+            variable=distance_method_var, command=run
         ).pack(side="left")
 
         def add_to_report():
@@ -424,10 +441,14 @@ def build_gap_tab(
                 return
             assessment = last_result["assessment"]
             marker = last_result["marker"]
+            distance_method = last_result["distance_method"]
             genus = last_result["species"].strip().split()[0]
             report_items.append({
                 "type": "barcode_gap",
-                "title": f"Barcode gap - {last_result['species']} ({marker})",
+                "title": (
+                    f"Barcode gap - {last_result['species']} "
+                    f"({marker}, {distance_method})"
+                ),
                 "subtitle": f"{genus} guide tree, added from Gap Analysis tab",
                 "image_bytes": last_result["tree_result"]["png"],
                 "assessment": {
