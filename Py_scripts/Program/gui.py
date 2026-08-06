@@ -28,6 +28,11 @@ df = None
 retrieval_data = None
 resume_jobs = None
 
+# how often a Fetch FASTA run re-saves its progress to disk/DB while it's
+# still running - see the CHECKPOINTING block in run_search(). Module-level
+# so a test can shrink it instead of waiting out a real 30s interval.
+CHECKPOINT_INTERVAL_SECONDS = 30
+
 resume_baseline_summary = None
 
 _saved_config = load_config()
@@ -1079,6 +1084,100 @@ def run_search():
     results = []
     blocked = False
 
+    # CHECKPOINTING-----------------------------------------------------
+    # Without this, everything fetched during a run only ever hits disk/DB
+    # once, at the very end of run_search() - so closing the app mid-run
+    # (on_closing() force-kills with os._exit(0) specifically because
+    # in-flight NCBI/BOLD calls would otherwise hang shutdown) or any crash
+    # loses every sequence fetched so far, no matter how far the run got.
+    # write_results/write_no_matches_table/summary.to_csv all overwrite
+    # their output files each call, so re-running them against whatever
+    # `results` holds so far is always safe to repeat, not just additive -
+    # that makes "periodically re-run the final-write logic against partial
+    # results" a correct, low-risk checkpoint. The output is exactly what a
+    # completed run "up to this point" would have produced, so a killed run
+    # is immediately resumable via the existing "Load no_matches.txt to
+    # resume" flow with no new resume logic needed.
+
+    checkpoint_conn = None
+    checkpoint_run_id = None
+    if save_database_var.get() and db_config.is_configured():
+        try:
+            checkpoint_conn = database.connect(db_config)
+            checkpoint_run_id = database.create_run(
+                checkpoint_conn, output_dir.get(), source)
+        except Exception as e:
+            log(f"Could not open database for incremental saving: {e}")
+            checkpoint_conn = None
+
+    db_pending = []
+    last_checkpoint_time = time.time()
+
+    def checkpoint():
+        nonlocal last_checkpoint_time
+
+        write_results(
+            results, output_dir.get(), separate_species_var.get(),
+            separate_marker_var.get(), save_metadata_var.get()
+        )
+
+        if resume_jobs is not None and resume_baseline_summary is not None:
+            current_data = merge_summary_dataframe(resume_baseline_summary, results)
+            current_matched = merge_matched_set(resume_baseline_summary, results)
+            current_species_list = list(current_data["Species"])
+            current_markers = [
+                c[:-len("_count")] for c in current_data.columns
+                if c.endswith("_count") and c not in
+                {"NCBI_count", "BOLD_count", "Total_count"}
+            ]
+        else:
+            current_matched = {(sp, mk) for sp, mk, _, _ in results}
+            current_data = build_summary_dataframe(results, species_list, markers)
+            current_species_list = species_list
+            current_markers = markers
+
+        if save_no_matches_var.get():
+            write_no_matches_table(
+                os.path.join(output_dir.get(), "no_matches.txt"),
+                current_species_list, current_markers, current_matched
+            )
+
+        if save_summary_var.get():
+            current_data.to_csv(
+                os.path.join(output_dir.get(), "summary.csv"), index=False)
+
+        if save_zero_species_var.get():
+            write_zero_species_csv(
+                os.path.join(output_dir.get(), "zero_species.csv"), current_data)
+
+        if checkpoint_conn is not None and db_pending:
+            try:
+                database.insert_sequences(
+                    checkpoint_conn, checkpoint_run_id, db_pending)
+                db_pending.clear()
+            except Exception as e:
+                log(f"Database checkpoint save failed: {e}")
+
+        last_checkpoint_time = time.time()
+        return current_data
+
+    def maybe_checkpoint():
+        # time-based, not job-count-based: NCBI (fast, concurrent) and BOLD
+        # (slow, rate-limited/batched) complete jobs at very different
+        # rates, so a fixed job count would checkpoint far too often on one
+        # source and far too rarely on the other
+        if time.time() - last_checkpoint_time >= CHECKPOINT_INTERVAL_SECONDS:
+            try:
+                checkpoint()
+                log(f"Checkpoint saved ({len(results)} sequence(s) so far).")
+            except Exception as e:
+                # a transient write failure (e.g. disk unavailable) during a
+                # checkpoint shouldn't abort the whole run - it just means
+                # this particular checkpoint didn't land, and results
+                # already fetched stay in memory for the next attempt or
+                # the final write
+                log(f"Checkpoint failed (will retry next interval): {e}")
+
     def report_progress(completed, total, start_time, label=""):
         elapsed = time.time() - start_time
         avg_time = elapsed / completed
@@ -1132,10 +1231,13 @@ def run_search():
 
                 for fasta_text, meta in records:
                     meta = {"species": species, "marker": marker, **meta}
-                    results.append((species, marker, fasta_text, meta))
+                    record = (species, marker, fasta_text, meta)
+                    results.append(record)
+                    db_pending.append(record)
 
                 completed += 1
                 report_progress(completed, total_jobs, start_time)
+                maybe_checkpoint()
 
         if retry_bold_var.get():
             matched_so_far = {(species, marker)
@@ -1172,12 +1274,15 @@ def run_search():
 
                     for fasta_text, meta in records:
                         meta = {"species": species, "marker": marker, **meta}
-                        results.append((species, marker, fasta_text, meta))
+                        record = (species, marker, fasta_text, meta)
+                        results.append(record)
+                        db_pending.append(record)
 
                     retry_completed += 1
                     report_progress(
                         retry_completed, retry_total, retry_start, label="BOLD retry: "
                     )
+                    maybe_checkpoint()
 
     elif source == "BOLD":
 
@@ -1223,10 +1328,13 @@ def run_search():
 
                     for fasta_text, meta in records:
                         meta = {"species": species, "marker": marker, **meta}
-                        results.append((species, marker, fasta_text, meta))
+                        record = (species, marker, fasta_text, meta)
+                        results.append(record)
+                        db_pending.append(record)
 
                     completed += 1
                     report_progress(completed, total_jobs, start_time)
+                    maybe_checkpoint()
 
                 if blocked:
                     break
@@ -1284,12 +1392,15 @@ def run_search():
                         for fasta_text, meta in records:
                             meta = {"species": species,
                                     "marker": marker, **meta}
-                            results.append((species, marker, fasta_text, meta))
+                            record = (species, marker, fasta_text, meta)
+                            results.append(record)
+                            db_pending.append(record)
 
                         retry_completed += 1
                         report_progress(
                             retry_completed, retry_total, retry_start, label="NCBI retry: "
                         )
+                        maybe_checkpoint()
 
     else:  # NCBI + BOLD
 
@@ -1316,8 +1427,6 @@ def run_search():
             for i in range(0, len(species_list), batch_size)
         ]
 
-        ncbi_results = {}
-        bold_results = {}
         cache = {}
 
         ncbi_completed = 0
@@ -1331,6 +1440,13 @@ def run_search():
                 for species in species_batch
                 for marker in jobs_by_species[species]
             ]
+
+            # per-batch, not accumulated across the whole run - the merge
+            # below happens once per batch specifically so a checkpoint
+            # partway through a long run has something real to save (see
+            # the merge step right after the BOLD portion, below)
+            ncbi_results = {}
+            bold_results = {}
 
             # NCBI portion of this batch (concurrent)
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1391,6 +1507,25 @@ def run_search():
                 if blocked:
                     break
 
+            # merge: pool both sources for this batch - done per-batch
+            # (rather than once for the whole run) specifically so results
+            # land in `results`/db_pending, and therefore in a checkpoint,
+            # well before the entire run finishes
+            batch_seen_jobs = set(ncbi_results.keys()) | set(bold_results.keys())
+
+            for job in batch_seen_jobs:
+                species, marker = job
+                pool = ncbi_results.get(job, []) + bold_results.get(job, [])
+                pool.sort(key=lambda record: record[1]["score"], reverse=True)
+
+                for fasta_text, meta in pool[:top_n]:
+                    meta = {"species": species, "marker": marker, **meta}
+                    record = (species, marker, fasta_text, meta)
+                    results.append(record)
+                    db_pending.append(record)
+
+            maybe_checkpoint()
+
             if blocked:
                 break
 
@@ -1399,70 +1534,20 @@ def run_search():
                 log(f"Pausing {batch_pause}s before next batch...")
                 time.sleep(batch_pause)
 
-        # merge: pool both sources
-
-        all_seen_jobs = set(ncbi_results.keys()) | set(bold_results.keys())
-
-        for job in all_seen_jobs:
-            species, marker = job
-            pool = ncbi_results.get(job, []) + bold_results.get(job, [])
-            pool.sort(key=lambda record: record[1]["score"], reverse=True)
-
-            for fasta_text, meta in pool[:top_n]:
-                meta = {"species": species, "marker": marker, **meta}
-                results.append((species, marker, fasta_text, meta))
-
-    write_results(
-        results,
-        output_dir.get(),
-        separate_species_var.get(),
-        separate_marker_var.get(),
-        save_metadata_var.get()
-    )
-
+    # final checkpoint - same write logic that ran periodically during the
+    # run (see maybe_checkpoint above), just guaranteed to run once more
+    # now so the last partial interval isn't left unsaved
     # resuming only re-searches pairs that previously had zero matches, merge into the previous run's summary.csv
+    try:
+        retrieval_data = checkpoint()
+    except Exception as e:
+        log(f"Final checkpoint failed: {e} - most recent periodic "
+            "checkpoint (if any) is still on disk/DB.")
+        retrieval_data = build_summary_dataframe(results, species_list, markers)
 
-    if resume_jobs is not None and resume_baseline_summary is not None:
-        retrieval_data = merge_summary_dataframe(
-            resume_baseline_summary, results)
-        matched_set = merge_matched_set(resume_baseline_summary, results)
-        full_species_list = list(retrieval_data["Species"])
-        full_markers = [
-            c[:-len("_count")] for c in retrieval_data.columns
-            if c.endswith("_count") and c not in
-            {"NCBI_count", "BOLD_count", "Total_count"}
-        ]
-    else:
-        matched_set = {(species, marker) for species, marker, _, _ in results}
-        # built regardless of the "Save summary.csv" checkbox, so the Retrieval Rate tab always has something to display after a run
-        retrieval_data = build_summary_dataframe(
-            results, species_list, markers)
-        full_species_list = species_list
-        full_markers = markers
-
-    if save_no_matches_var.get():
-        no_matches_path = os.path.join(output_dir.get(), "no_matches.txt")
-        write_no_matches_table(
-            no_matches_path, full_species_list, full_markers, matched_set)
-
-    if save_summary_var.get():
-        summary_path = os.path.join(output_dir.get(), "summary.csv")
-        retrieval_data.to_csv(summary_path, index=False)
-
-    if save_zero_species_var.get():
-        zero_species_path = os.path.join(output_dir.get(), "zero_species.csv")
-        write_zero_species_csv(zero_species_path, retrieval_data)
-
-    if save_database_var.get() and db_config.is_configured():
-        try:
-            conn = database.connect(db_config)
-            run_id = database.create_run(conn, output_dir.get(), source)
-            inserted = database.insert_sequences(conn, run_id, results)
-            conn.close()
-            log(f"Saved {inserted} new sequence(s) to database: "
-                f"{db_config.display_var.get()}")
-        except Exception as e:
-            log(f"Database save failed: {e}")
+    if checkpoint_conn is not None:
+        checkpoint_conn.close()
+        log(f"Database saving complete: {db_config.display_var.get()}")
 
     Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
 
