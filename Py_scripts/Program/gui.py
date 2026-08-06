@@ -33,6 +33,26 @@ resume_jobs = None
 # so a test can shrink it instead of waiting out a real 30s interval.
 CHECKPOINT_INTERVAL_SECONDS = 30
 
+# set by the Stop button, checked between jobs in run_search() - a
+# cooperative cancel rather than an abrupt thread-kill, since Python can't
+# safely force-terminate a thread mid network-call. Module-level (not
+# recreated per run) so the Stop button's command doesn't need to reach
+# into a specific run's local state.
+cancel_event = threading.Event()
+
+
+def sleep_or_cancel(total_seconds):
+    # a plain time.sleep(batch_pause) can't be interrupted - BOLD's
+    # inter-batch pause defaults to 30s and can be set much longer, so
+    # cancelling a run shouldn't have to wait one out. Sleeps in short
+    # increments instead, returning early the moment cancel_event is set.
+    step = 0.5
+    elapsed = 0.0
+    while elapsed < total_seconds and not cancel_event.is_set():
+        time.sleep(min(step, total_seconds - elapsed))
+        elapsed += step
+
+
 resume_baseline_summary = None
 
 _saved_config = load_config()
@@ -1221,6 +1241,14 @@ def run_search():
             }
 
             for future in as_completed(future_to_job):
+                if cancel_event.is_set():
+                    # can't recall calls already in flight, but this stops
+                    # any not-yet-started ones and returns as soon as
+                    # whatever's currently running finishes, rather than
+                    # waiting on the full remaining job list
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+
                 species, marker = future_to_job[future]
 
                 try:
@@ -1239,7 +1267,7 @@ def run_search():
                 report_progress(completed, total_jobs, start_time)
                 maybe_checkpoint()
 
-        if retry_bold_var.get():
+        if retry_bold_var.get() and not cancel_event.is_set():
             matched_so_far = {(species, marker)
                               for species, marker, _, _ in results}
             retry_jobs = [job for job in all_jobs if job not in matched_so_far]
@@ -1258,6 +1286,9 @@ def run_search():
                 retry_start = time.time()
 
                 for species, marker in retry_jobs:
+
+                    if cancel_event.is_set():
+                        break
 
                     log(f"Retrying {species} ({marker}) on BOLD...")
 
@@ -1306,9 +1337,15 @@ def run_search():
 
         for batch_index, species_batch in enumerate(species_batches):
 
+            if cancel_event.is_set():
+                break
+
             for species in species_batch:
 
                 for marker in jobs_by_species[species]:
+
+                    if cancel_event.is_set():
+                        break
 
                     log(
                         f"Searching {species} ({marker}) on BOLD "
@@ -1336,18 +1373,18 @@ def run_search():
                     report_progress(completed, total_jobs, start_time)
                     maybe_checkpoint()
 
-                if blocked:
+                if blocked or cancel_event.is_set():
                     break
 
-            if blocked:
+            if blocked or cancel_event.is_set():
                 break
 
             is_last_batch = batch_index == len(species_batches) - 1
             if batch_pause > 0 and not is_last_batch:
                 log(f"Pausing {batch_pause}s before next batch...")
-                time.sleep(batch_pause)
+                sleep_or_cancel(batch_pause)
 
-        if retry_ncbi_var.get():
+        if retry_ncbi_var.get() and not cancel_event.is_set():
             matched_so_far = {(species, marker)
                               for species, marker, _, _ in results}
             retry_jobs = [job for job in all_jobs if job not in matched_so_far]
@@ -1381,6 +1418,10 @@ def run_search():
                     }
 
                     for future in as_completed(future_to_job):
+                        if cancel_event.is_set():
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            break
+
                         species, marker = future_to_job[future]
 
                         try:
@@ -1435,6 +1476,9 @@ def run_search():
 
         for batch_index, species_batch in enumerate(species_batches):
 
+            if cancel_event.is_set():
+                break
+
             batch_jobs = [
                 (species, marker)
                 for species in species_batch
@@ -1461,6 +1505,10 @@ def run_search():
                 }
 
                 for future in as_completed(future_to_job):
+                    if cancel_event.is_set():
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+
                     job = future_to_job[future]
 
                     try:
@@ -1479,7 +1527,13 @@ def run_search():
             # BOLD portion of this batch (serial, cached, circuit breaker)
             for species in species_batch:
 
+                if cancel_event.is_set():
+                    break
+
                 for marker in jobs_by_species[species]:
+
+                    if cancel_event.is_set():
+                        break
 
                     log(
                         f"Searching {species} ({marker}) on BOLD "
@@ -1504,7 +1558,7 @@ def run_search():
                     report_progress(bold_completed, total_jobs,
                                     bold_start, label="BOLD: ")
 
-                if blocked:
+                if blocked or cancel_event.is_set():
                     break
 
             # merge: pool both sources for this batch - done per-batch
@@ -1526,13 +1580,13 @@ def run_search():
 
             maybe_checkpoint()
 
-            if blocked:
+            if blocked or cancel_event.is_set():
                 break
 
             is_last_batch = batch_index == len(species_batches) - 1
             if batch_pause > 0 and not is_last_batch:
                 log(f"Pausing {batch_pause}s before next batch...")
-                time.sleep(batch_pause)
+                sleep_or_cancel(batch_pause)
 
     # final checkpoint - same write logic that ran periodically during the
     # run (see maybe_checkpoint above), just guaranteed to run once more
@@ -1550,8 +1604,15 @@ def run_search():
         log(f"Database saving complete: {db_config.display_var.get()}")
 
     Fetch_Fasta.after(0, lambda: run_button.configure(state="normal"))
+    Fetch_Fasta.after(
+        0, lambda: stop_button.configure(state="disabled", text="⏹ Stop"))
 
-    if blocked:
+    if cancel_event.is_set():
+        update_status(
+            f"Cancelled - {len(results)}/{total_jobs} sequences saved "
+            "before stopping."
+        )
+    elif blocked:
         update_status(
             "BOLD blocked the requests - stopped early. "
             "Partial results saved. Try again later with a "
@@ -1568,6 +1629,8 @@ def run_search():
 
 
 def start_run():
+    cancel_event.clear()
+    stop_button.configure(state="normal", text="⏹ Stop")
 
     thread = threading.Thread(
         target=run_search,
@@ -1577,13 +1640,38 @@ def start_run():
     thread.start()
 
 
+def request_cancel():
+    # cooperative - run_search checks cancel_event between jobs and finishes
+    # up (final checkpoint, status update) on its own rather than being torn
+    # down here, so whatever's already in flight gets to complete cleanly
+    cancel_event.set()
+    stop_button.configure(state="disabled", text="Stopping...")
+    update_status(
+        "Cancelling - finishing in-flight requests, then saving partial "
+        "results..."
+    )
+
+
+run_button_row = ctk.CTkFrame(scroll, fg_color="transparent")
+run_button_row.pack(fill="x", pady=10)
+
 run_button = ctk.CTkButton(
-    scroll,
+    run_button_row,
     text="▶ RUN PIPELINE",
     command=start_run
 )
+run_button.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
-run_button.pack(fill="x", pady=10)
+stop_button = ctk.CTkButton(
+    run_button_row,
+    text="⏹ Stop",
+    command=request_cancel,
+    state="disabled",
+    fg_color="#b91c1c",
+    hover_color="#7f1616",
+    width=90,
+)
+stop_button.pack(side="left")
 
 
 # TERMINAL TAB-------------------------------------------------
