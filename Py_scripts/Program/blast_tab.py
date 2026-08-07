@@ -1,3 +1,4 @@
+import ctypes
 import os
 import subprocess
 import sys
@@ -14,6 +15,27 @@ if getattr(sys, "frozen", False):
     BLAST_BIN = os.path.join(sys._MEIPASS, "tools", "blast", "bin")
 else:
     BLAST_BIN = r"B:\Stage\tools\blast\bin"
+
+
+def _blast_safe_path(path):
+    """
+    NCBI BLAST+'s Windows command-line tools mis-handle any path containing
+    a space - confirmed: makeblastdb silently rejects -in/-out when their
+    directory has a space in it, and even a space-containing working
+    directory alone breaks its internal post-build check - regardless of
+    proper argv quoting on our end. The fix is to pass the Windows short
+    (8.3) path instead, which is guaranteed space-free, for any argument
+    handed to a BLAST+ executable.
+    """
+    directory, name = os.path.split(path)
+    if " " not in directory or not os.path.isdir(directory):
+        return path
+
+    buf = ctypes.create_unicode_buffer(260)
+    if ctypes.windll.kernel32.GetShortPathNameW(directory, buf, 260):
+        return os.path.join(buf.value, name)
+
+    return path
 
 
 def build_blast_tab(parent, root=None):
@@ -183,8 +205,9 @@ def build_blast_tab(parent, root=None):
             # build a nucleotide BLAST database from the FASTA file
             subprocess.run(
                 [os.path.join(BLAST_BIN, "makeblastdb.exe"),
-                 "-in", path, "-dbtype", "nucl", "-out", db_out],
-                check=True
+                 "-in", _blast_safe_path(path), "-dbtype", "nucl",
+                 "-out", _blast_safe_path(db_out)],
+                capture_output=True, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
             status_label.configure(text="Failed to create BLAST database.")
@@ -230,7 +253,9 @@ def build_blast_tab(parent, root=None):
         try:
             result = subprocess.run(
                 [os.path.join(BLAST_BIN, f"{blast_program}.exe"),
-                 "-query", query_fasta, "-db", blast_db_path.get(), "-outfmt", "0"],
+                 "-query", _blast_safe_path(os.path.abspath(query_fasta)),
+                 "-db", _blast_safe_path(blast_db_path.get()),
+                 "-outfmt", "0"],
                 capture_output=True, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
