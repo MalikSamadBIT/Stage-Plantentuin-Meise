@@ -413,15 +413,24 @@ bad_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
 ctk.CTkLabel(markers_frame, text="Markers", font=(
     "Arial", 14, "bold")).pack(anchor="w")
 
+# _saved_config only has "selected_markers" once a previous session has
+# actually saved one - None (vs. an empty list) distinguishes "never saved
+# before" (fall back to the original all-unchecked default) from "saved
+# with nothing checked" (respect that, even though it looks the same as
+# never having run this app before)
+_saved_markers = _saved_config.get("selected_markers")
+
 marker_vars = {}
 for m in ["ITS", "ITS1", "ITS2", "rbcL", "matK", "trnL", "psbA-trnH"]:
-    v = ctk.BooleanVar()
+    checked = (m in _saved_markers) if _saved_markers is not None else False
+    v = ctk.BooleanVar(value=checked)
     marker_vars[m] = v
     ctk.CTkCheckBox(markers_frame, text=m, variable=v).pack(anchor="w")
 
 ctk.CTkLabel(markers_frame, text="Extra markers (comma separated)").pack(
     anchor="w", pady=(10, 0))
 extra_markers = ctk.CTkEntry(markers_frame)
+extra_markers.insert(0, _saved_config.get("extra_markers", ""))
 extra_markers.pack(fill="x", pady=5)
 
 
@@ -429,12 +438,12 @@ extra_markers.pack(fill="x", pady=5)
 ctk.CTkLabel(bad_frame, text="Filters", font=(
     "Arial", 14, "bold")).pack(anchor="w")
 
+_saved_bad_words = _saved_config.get("selected_bad_words")
+
 bad_words_default = {
-    "whole genome": ctk.BooleanVar(value=True),
-    "chromosome": ctk.BooleanVar(value=True),
-    "scaffold": ctk.BooleanVar(value=True),
-    "contig": ctk.BooleanVar(value=True),
-    "assembly": ctk.BooleanVar(value=True),
+    w: ctk.BooleanVar(
+        value=(w in _saved_bad_words) if _saved_bad_words is not None else True)
+    for w in ["whole genome", "chromosome", "scaffold", "contig", "assembly"]
 }
 
 for w, v in bad_words_default.items():
@@ -442,6 +451,7 @@ for w, v in bad_words_default.items():
 
 ctk.CTkLabel(bad_frame, text="Extra bad words").pack(anchor="w", pady=(10, 0))
 extra_bad = ctk.CTkEntry(bad_frame)
+extra_bad.insert(0, _saved_config.get("extra_bad_words", ""))
 extra_bad.pack(fill="x", pady=5)
 
 
@@ -454,12 +464,16 @@ ctk.CTkButton(scroll, text="Select Output Folder",
               command=choose_output).pack(fill="x", pady=5)
 ctk.CTkLabel(scroll, textvariable=output_dir).pack(anchor="w", pady=(0, 10))
 
-separate_species_var = ctk.BooleanVar(value=True)
-separate_marker_var = ctk.BooleanVar(value=True)
-save_metadata_var = ctk.BooleanVar(value=True)
-save_no_matches_var = ctk.BooleanVar(value=True)
-save_summary_var = ctk.BooleanVar(value=True)
-save_zero_species_var = ctk.BooleanVar(value=True)
+separate_species_var = ctk.BooleanVar(
+    value=_saved_config.get("separate_species", True))
+separate_marker_var = ctk.BooleanVar(
+    value=_saved_config.get("separate_marker", True))
+save_metadata_var = ctk.BooleanVar(value=_saved_config.get("save_metadata", True))
+save_no_matches_var = ctk.BooleanVar(
+    value=_saved_config.get("save_no_matches", True))
+save_summary_var = ctk.BooleanVar(value=_saved_config.get("save_summary", True))
+save_zero_species_var = ctk.BooleanVar(
+    value=_saved_config.get("save_zero_species", True))
 
 
 def update_preview(*args):
@@ -520,6 +534,15 @@ marker_checkbox = ctk.CTkCheckBox(
 )
 marker_checkbox.pack(anchor="w", pady=2)
 
+# a loaded separate_species=False must still disable this checkbox (and
+# force separate_marker off), the same invariant on_species_toggle
+# enforces live - but that also calls update_preview(), which needs
+# preview_label, not created until later in this setup, so just the
+# state-sync part is duplicated here rather than calling it directly
+if not separate_species_var.get():
+    marker_checkbox.configure(state="disabled")
+    separate_marker_var.set(False)
+
 metadata_checkbox = ctk.CTkCheckBox(
     scroll,
     text="Save sequence metadata (.txt), matching the FASTA grouping",
@@ -556,7 +579,7 @@ zero_species_checkbox.pack(anchor="w", pady=2)
 # DATABASE (alongside the file outputs)---------------------------------------------------------
 # the database file itself is shared program-wide chosen once in Settings
 
-save_database_var = ctk.BooleanVar(value=False)
+save_database_var = ctk.BooleanVar(value=_saved_config.get("save_database", False))
 
 database_checkbox = ctk.CTkCheckBox(
     scroll,
@@ -783,38 +806,38 @@ ctk.CTkLabel(
     justify="left", text_color="gray", wraplength=700, font=("Arial", 11)
 ).pack(anchor="w", pady=(0, 5))
 
-strip_chars_var = ctk.BooleanVar(value=False)
+strip_chars_var = ctk.BooleanVar(value=_saved_config.get("strip_chars_enabled", False))
 ctk.CTkCheckBox(
     settings_scroll, text="Strip these characters:", variable=strip_chars_var
 ).pack(anchor="w", pady=(0, 2))
 
 strip_chars_entry = ctk.CTkEntry(settings_scroll, placeholder_text="e.g. ×")
-strip_chars_entry.insert(0, "×")
+strip_chars_entry.insert(0, _saved_config.get("strip_chars", "×"))
 strip_chars_entry.pack(fill="x", pady=(0, 10))
 
 ctk.CTkLabel(settings_scroll, text="Min. interval between requests (s)").pack(
     anchor="w")
 sleep_entry = ctk.CTkEntry(settings_scroll)
-sleep_entry.insert(0, "0.1")
+sleep_entry.insert(0, _saved_config.get("sleep_interval", "0.1"))
 sleep_entry.pack(fill="x", pady=5)
 
 workers_label = ctk.CTkLabel(
     settings_scroll, text="Concurrent workers (NCBI only)")
 workers_label.pack(anchor="w")
 workers_entry = ctk.CTkEntry(settings_scroll)
-workers_entry.insert(0, "5")
+workers_entry.insert(0, _saved_config.get("workers", "5"))
 workers_entry.pack(fill="x", pady=5)
 
 ctk.CTkLabel(settings_scroll, text="Candidates to score per search (top N)").pack(
     anchor="w")
 candidates_entry = ctk.CTkEntry(settings_scroll)
-candidates_entry.insert(0, "10")
+candidates_entry.insert(0, _saved_config.get("candidates", "10"))
 candidates_entry.pack(fill="x", pady=5)
 
 ctk.CTkLabel(settings_scroll, text="Results to save per marker (top N)").pack(
     anchor="w")
 top_n_entry = ctk.CTkEntry(settings_scroll)
-top_n_entry.insert(0, "1")
+top_n_entry.insert(0, _saved_config.get("top_n", "1"))
 top_n_entry.pack(fill="x", pady=5)
 
 
@@ -829,11 +852,11 @@ length_full_frame = ctk.CTkFrame(settings_scroll, fg_color="transparent")
 length_full_frame.pack(fill="x", pady=5)
 
 length_full_min_entry = ctk.CTkEntry(length_full_frame, placeholder_text="min")
-length_full_min_entry.insert(0, "300")
+length_full_min_entry.insert(0, _saved_config.get("length_full_min", "300"))
 length_full_min_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
 length_full_max_entry = ctk.CTkEntry(length_full_frame, placeholder_text="max")
-length_full_max_entry.insert(0, "1200")
+length_full_max_entry.insert(0, _saved_config.get("length_full_max", "1200"))
 length_full_max_entry.pack(side="left", fill="x", expand=True)
 
 ctk.CTkLabel(settings_scroll, text="Default partial score length band (bp)").pack(
@@ -844,12 +867,12 @@ length_partial_frame.pack(fill="x", pady=5)
 
 length_partial_min_entry = ctk.CTkEntry(
     length_partial_frame, placeholder_text="min")
-length_partial_min_entry.insert(0, "200")
+length_partial_min_entry.insert(0, _saved_config.get("length_partial_min", "200"))
 length_partial_min_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
 length_partial_max_entry = ctk.CTkEntry(
     length_partial_frame, placeholder_text="max")
-length_partial_max_entry.insert(0, "2000")
+length_partial_max_entry.insert(0, _saved_config.get("length_partial_max", "2000"))
 length_partial_max_entry.pack(side="left", fill="x", expand=True)
 
 ctk.CTkLabel(settings_scroll, text="Per-marker overrides (optional)").pack(
@@ -864,6 +887,7 @@ ctk.CTkLabel(
 ).pack(anchor="w")
 
 marker_bands_textbox = ctk.CTkTextbox(settings_scroll, height=90)
+marker_bands_textbox.insert("1.0", _saved_config.get("marker_length_bands_text", ""))
 marker_bands_textbox.pack(fill="x", pady=5)
 
 
@@ -903,12 +927,12 @@ def parse_marker_length_bands(text):
 batch_size_label = ctk.CTkLabel(
     settings_scroll, text="Species per batch (BOLD searches)")
 batch_size_entry = ctk.CTkEntry(settings_scroll)
-batch_size_entry.insert(0, "10")
+batch_size_entry.insert(0, _saved_config.get("batch_size", "10"))
 
 batch_pause_label = ctk.CTkLabel(
     settings_scroll, text="Pause between batches, s (BOLD searches)")
 batch_pause_entry = ctk.CTkEntry(settings_scroll)
-batch_pause_entry.insert(0, "30")
+batch_pause_entry.insert(0, _saved_config.get("batch_pause", "30"))
 # not packed here - only shown when BOLD or "NCBI + BOLD" is selected
 
 
@@ -917,7 +941,9 @@ batch_pause_entry.insert(0, "30")
 ctk.CTkLabel(right, text="📊 SCORING", font=("Arial", 18, "bold")).pack(pady=10)
 
 
-def slider(label, default):
+def slider(label, config_key, default):
+    default = int(_saved_config.get(config_key, default))
+
     frame = ctk.CTkFrame(right)
     frame.pack(fill="x", pady=8, padx=10)
 
@@ -938,11 +964,11 @@ def slider(label, default):
     return s
 
 
-belgium_s = slider("Belgium boost", 40)
-neighbor_s = slider("Neighbor boost", 20)
-europe_s = slider("Europe fallback", 5)
-length_s = slider("Length bonus", 10)
-bad_penalty_s = slider("Bad penalty", 100)
+belgium_s = slider("Belgium boost", "score_belgium", 40)
+neighbor_s = slider("Neighbor boost", "score_neighbor", 20)
+europe_s = slider("Europe fallback", "score_europe", 5)
+length_s = slider("Length bonus", "score_length_bonus", 10)
+bad_penalty_s = slider("Bad penalty", "score_bad_penalty", 100)
 
 
 # OUTPUT STRUCTURE PREVIEW (right panel)------------------------------
@@ -1741,6 +1767,53 @@ def on_closing():
         "db_mysql_port": db_config.mysql_port,
         "db_mysql_user": db_config.mysql_user,
         "db_mysql_database": db_config.mysql_database,
+
+        # request/search tuning (Settings tab)
+        "sleep_interval": sleep_entry.get(),
+        "workers": workers_entry.get(),
+        "candidates": candidates_entry.get(),
+        "top_n": top_n_entry.get(),
+        "batch_size": batch_size_entry.get(),
+        "batch_pause": batch_pause_entry.get(),
+
+        # length bands
+        "length_full_min": length_full_min_entry.get(),
+        "length_full_max": length_full_max_entry.get(),
+        "length_partial_min": length_partial_min_entry.get(),
+        "length_partial_max": length_partial_max_entry.get(),
+        "marker_length_bands_text": marker_bands_textbox.get("1.0", "end").strip(),
+
+        # scoring sliders
+        "score_belgium": belgium_s.get(),
+        "score_neighbor": neighbor_s.get(),
+        "score_europe": europe_s.get(),
+        "score_length_bonus": length_s.get(),
+        "score_bad_penalty": bad_penalty_s.get(),
+
+        # default marker/bad-word selections (Fetch FASTA tab)
+        "selected_markers": [m for m, v in marker_vars.items() if v.get()],
+        "extra_markers": extra_markers.get(),
+        "selected_bad_words": [w for w, v in bad_words_default.items() if v.get()],
+        "extra_bad_words": extra_bad.get(),
+
+        # output options
+        "separate_species": separate_species_var.get(),
+        "separate_marker": separate_marker_var.get(),
+        "save_metadata": save_metadata_var.get(),
+        "save_no_matches": save_no_matches_var.get(),
+        "save_summary": save_summary_var.get(),
+        "save_zero_species": save_zero_species_var.get(),
+        "save_database": save_database_var.get(),
+
+        # character stripping (e.g. hybrid × marker)
+        "strip_chars_enabled": strip_chars_var.get(),
+        "strip_chars": strip_chars_entry.get(),
+
+        # deliberately NOT saved: species list/CSV path, output directory,
+        # resume state, and the NCBI/BOLD source choice + retry checkboxes
+        # - these are per-run choices, not standing settings, and
+        # auto-restoring them (especially output_dir or an old species
+        # list) on every launch would be surprising rather than convenient
     })
 
     # ThreadPoolExecutor workers spawned by run_search() are non-daemon, so a plain exit would hang until any in-flight NCBI/BOLD calls finish. Force-kill the process instead.
