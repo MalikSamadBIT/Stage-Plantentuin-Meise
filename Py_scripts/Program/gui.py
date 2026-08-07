@@ -944,11 +944,6 @@ batch_pause_entry.insert(0, _saved_config.get("batch_pause", "30"))
 
 
 # SETTINGS PRESETS-----------------------------------------------------------
-# Named snapshots of everything collect_current_settings() covers - scoring,
-# markers/filters, output options, character stripping. NOT credentials or
-# the database connection, which stay as-is across preset switches. Useful
-# when different projects/taxon groups need different tuning (e.g. "Fungi
-# ITS" vs "Plants matK") without re-entering every slider each time.
 
 ctk.CTkLabel(settings_scroll, text="💾 SETTINGS PRESETS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(15, 5))

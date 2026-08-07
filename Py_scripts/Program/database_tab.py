@@ -45,9 +45,11 @@ def build_database_tab(parent, root=None, db_config=None):
 
     view_tab = sub_tabs.add("View Database")
     transfer_tab = sub_tabs.add("Transfer Database")
+    query_tab = sub_tabs.add("Query Database")
 
-    _build_view_tab(view_tab, root, db_config)
+    view_reload = _build_view_tab(view_tab, root, db_config)
     _build_transfer_tab(transfer_tab, root, db_config)
+    _build_query_tab(query_tab, root, db_config, on_data_changed=view_reload)
 
 
 def _build_view_tab(parent, root, db_config):
@@ -373,6 +375,8 @@ def _build_view_tab(parent, root, db_config):
     if db_config.is_configured():
         load_data()
 
+    return load_data
+
 
 # TRANSFER TAB (SQLite -> MySQL, via the sqlite3-to-mysql package)-----------
 
@@ -586,3 +590,194 @@ def _build_transfer_tab(parent, root, db_config):
         parent, text="Transfer to MySQL", command=start_transfer
     )
     transfer_button.pack(anchor="w", padx=10, pady=(0, 10))
+
+
+# QUERY TAB (raw SQL against the active database)-----------------------
+
+# a query "looks read-only" if - after stripping leading whitespace - it
+# starts with one of these. Anything else is treated as a write and
+# confirmed first. This is a guard against accidental data loss, not a
+# security boundary - the user is running their own SQL against their own
+# database, same trust level as typing it into a DB client directly.
+_READ_ONLY_PREFIXES = (
+    "select", "pragma", "show", "explain", "with", "desc", "describe"
+)
+
+
+def _build_query_tab(parent, root, db_config, on_data_changed=None):
+    """
+    Lets the user run a single raw SQL statement against the active
+    database. Statements that return rows (SELECT, PRAGMA, SHOW, ...)
+    display results in a table; anything else runs as a write (after a
+    confirmation prompt) and reports rows affected, then refreshes the
+    View Database tab via on_data_changed.
+    """
+
+    ctk.CTkLabel(
+        parent, text="Query the database", font=("Arial", 16, "bold")
+    ).pack(anchor="w", padx=10, pady=(10, 2))
+
+    ctk.CTkLabel(
+        parent,
+        text="Run a single SQL statement against the active database - "
+             "SELECT shows results below; INSERT/UPDATE/DELETE/etc. modify "
+             "the database directly (you'll be asked to confirm first).",
+        text_color="gray", justify="left", wraplength=700
+    ).pack(anchor="w", padx=10, pady=(0, 5))
+
+    ctk.CTkLabel(
+        parent, textvariable=db_config.display_var, text_color="gray"
+    ).pack(anchor="w", padx=10, pady=(0, 10))
+
+    query_box = ctk.CTkTextbox(parent, height=100, font=("Consolas", 13))
+    query_box.pack(fill="x", padx=10, pady=(0, 5))
+
+    status_label = ctk.CTkLabel(
+        parent, text="Enter a SQL statement above and run it.",
+        text_color="gray"
+    )
+    status_label.pack(anchor="w", padx=10, pady=(0, 5))
+
+    # RESULTS TABLE (for statements that return rows)----------------------
+
+    results_frame = tkinter.Frame(parent)
+    results_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    results_vsb = ttk.Scrollbar(results_frame, orient="vertical")
+    results_hsb = ttk.Scrollbar(results_frame, orient="horizontal")
+
+    results_tree = ttk.Treeview(
+        results_frame, show="headings",
+        yscrollcommand=results_vsb.set, xscrollcommand=results_hsb.set
+    )
+
+    results_vsb.configure(command=results_tree.yview)
+    results_hsb.configure(command=results_tree.xview)
+
+    results_vsb.pack(side=tkinter.RIGHT, fill=tkinter.Y)
+    results_hsb.pack(side=tkinter.BOTTOM, fill=tkinter.X)
+    results_tree.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=True)
+
+    def populate_results(columns, rows):
+        results_tree.delete(*results_tree.get_children())
+        results_tree["columns"] = columns
+        for col in columns:
+            results_tree.heading(col, text=col)
+            results_tree.column(col, width=110, anchor="center")
+        for row in rows:
+            results_tree.insert("", "end", values=[row[c] for c in columns])
+
+    def clear_results():
+        results_tree.delete(*results_tree.get_children())
+        results_tree["columns"] = []
+
+    def looks_read_only(sql):
+        return sql.strip().lower().startswith(_READ_ONLY_PREFIXES)
+
+    def confirm_write(sql):
+        result = {"confirmed": False}
+
+        dialog = ctk.CTkToplevel(root)
+        dialog.title("Confirm database change")
+        dialog.geometry("480x240")
+        dialog.transient(root)
+        dialog.grab_set()
+
+        ctk.CTkLabel(
+            dialog, text="This will modify the database:",
+            font=("Arial", 14, "bold")
+        ).pack(padx=20, pady=(20, 5), anchor="w")
+
+        preview = ctk.CTkTextbox(dialog, height=80)
+        preview.pack(fill="x", padx=20)
+        preview.insert("1.0", sql)
+        preview.configure(state="disabled")
+
+        def on_yes():
+            result["confirmed"] = True
+            dialog.destroy()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=15)
+
+        ctk.CTkButton(
+            btn_frame, text="Run it", command=on_yes, fg_color="#a83232"
+        ).pack(side="left", padx=10)
+        ctk.CTkButton(
+            btn_frame, text="Cancel", command=dialog.destroy
+        ).pack(side="left", padx=10)
+
+        dialog.wait_window()
+        return result["confirmed"]
+
+    def query_succeeded_read(columns, rows):
+        populate_results(columns, rows)
+        status_label.configure(
+            text=f"{len(rows)} row(s) returned.", text_color="white")
+        run_button.configure(state="normal")
+
+    def query_succeeded_write(affected):
+        clear_results()
+        text = (f"{affected} row(s) affected."
+                if affected is not None and affected >= 0
+                else "Statement executed successfully.")
+        status_label.configure(text=text, text_color="green")
+        run_button.configure(state="normal")
+        if on_data_changed:
+            on_data_changed()
+
+    def query_failed(error):
+        status_label.configure(
+            text=f"Query failed: {error}", text_color="red")
+        run_button.configure(state="normal")
+
+    def do_run(sql):
+        try:
+            conn = database.connect(db_config)
+            try:
+                cur = conn.execute(sql)
+                if cur.description is not None:
+                    columns = [d[0] for d in cur.description]
+                    rows = [dict(r) for r in cur.fetchall()]
+                    conn.close()
+                    parent.after(
+                        0, lambda: query_succeeded_read(columns, rows))
+                else:
+                    conn.commit()
+                    affected = cur.rowcount
+                    conn.close()
+                    parent.after(0, lambda: query_succeeded_write(affected))
+            except Exception:
+                conn.rollback()
+                conn.close()
+                raise
+        except Exception as e:
+            error_text = str(e)
+            parent.after(0, lambda: query_failed(error_text))
+
+    def run_query():
+        sql = query_box.get("1.0", "end").strip()
+
+        if not sql:
+            status_label.configure(
+                text="Enter a SQL statement first.", text_color="red")
+            return
+
+        if not db_config.is_configured():
+            status_label.configure(
+                text="No database selected - choose one in the Settings tab.",
+                text_color="red")
+            return
+
+        if not looks_read_only(sql) and not confirm_write(sql):
+            status_label.configure(
+                text="Cancelled - nothing was run.", text_color="gray")
+            return
+
+        run_button.configure(state="disabled")
+        status_label.configure(text="Running...", text_color="gray")
+
+        threading.Thread(target=do_run, args=(sql,), daemon=True).start()
+
+    run_button = ctk.CTkButton(parent, text="Run Query", command=run_query)
+    run_button.pack(anchor="w", padx=10, pady=(0, 10))
