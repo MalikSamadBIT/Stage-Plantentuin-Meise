@@ -149,3 +149,27 @@ def save_config(config):
     os.makedirs(CONFIG_DIR, exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
+
+
+# SETTINGS PRESETS-----------------------------------------
+# Separate from config.json's single "last session" state - named presets
+# let a user switch tuning between projects/taxon groups (e.g. "Fungi ITS"
+# vs "Plants matK") without re-entering every slider/checkbox each time.
+# {preset_name: settings_dict}, same settings_dict shape config.json's
+# tuning keys use - see gui.py's collect_current_settings()/apply_settings().
+
+PRESETS_PATH = os.path.join(CONFIG_DIR, "presets.json")
+
+
+def load_presets():
+    try:
+        with open(PRESETS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_presets(presets):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(PRESETS_PATH, "w", encoding="utf-8") as f:
+        json.dump(presets, f, indent=2)

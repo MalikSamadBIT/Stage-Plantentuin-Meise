@@ -636,3 +636,30 @@ def query_df(conn, sql, params=()):
     """
     rows = conn.execute(sql, params).fetchall()
     return pd.DataFrame([dict(row) for row in rows])
+
+
+# SQLite caps the number of "?" placeholders in a single statement
+# (SQLITE_MAX_VARIABLE_NUMBER - as low as 999 on some builds) - a plain
+# "WHERE accession IN (?, ?, ..., ?)" with one placeholder per accession
+# breaks once the accession list gets large, so this runs the lookup in
+# batches instead. Comfortably under that cap for both backends.
+ACCESSION_CHUNK_SIZE = 500
+
+
+def fetch_by_accessions(conn, accessions):
+    """
+    Used by "Export View to FASTA" (database_tab.py) and "create BLAST
+    database" (blast_tab.py) - both pull the same
+    (species, marker, accession, sequence) columns for a list of
+    accessions.
+    """
+    rows = []
+    for i in range(0, len(accessions), ACCESSION_CHUNK_SIZE):
+        chunk = accessions[i:i + ACCESSION_CHUNK_SIZE]
+        placeholders = ",".join("?" for _ in chunk)
+        rows.extend(conn.execute(
+            f"SELECT species, marker, accession, sequence FROM sequences_view "
+            f"WHERE accession IN ({placeholders})",
+            chunk
+        ).fetchall())
+    return rows

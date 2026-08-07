@@ -348,12 +348,7 @@ def _build_view_tab(parent, root, db_config):
 
         try:
             conn = database.connect(db_config)
-            placeholders = ",".join("?" for _ in accessions)
-            rows = conn.execute(
-                f"SELECT species, marker, accession, sequence FROM sequences_view "
-                f"WHERE accession IN ({placeholders})",
-                accessions
-            ).fetchall()
+            rows = database.fetch_by_accessions(conn, accessions)
             conn.close()
         except Exception as e:
             status_label.configure(text=f"Export failed: {e}")

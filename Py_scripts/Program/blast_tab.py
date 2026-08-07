@@ -112,7 +112,7 @@ def build_blast_tab(parent, root=None):
 
         try:
             conn = database.connect(db_path.get())
-            full_df = pd.read_sql_query("SELECT * FROM sequences_view", conn)
+            full_df = database.query_df(conn, "SELECT * FROM sequences_view")
             conn.close()
         except Exception as e:
             status_label.configure(text=f"Failed to load database: {e}")
@@ -166,12 +166,7 @@ def build_blast_tab(parent, root=None):
 
         try:
             conn = database.connect(db_path.get())
-            placeholders = ",".join("?" for _ in accessions)
-            rows = conn.execute(
-                f"SELECT species, marker, accession, sequence FROM sequences_view "
-                f"WHERE accession IN ({placeholders})",
-                accessions
-            ).fetchall()
+            rows = database.fetch_by_accessions(conn, accessions)
             conn.close()
         except Exception as e:
             status_label.configure(text=f"Export failed: {e}")

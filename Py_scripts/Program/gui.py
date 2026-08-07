@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from common import (
     RateLimiter, load_config, save_config, strip_characters,
-    read_csv_robust, fix_mojibake
+    read_csv_robust, fix_mojibake, load_presets, save_presets
 )
 from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from bold_client import BoldBlockedError, search_and_fetch_bold
@@ -468,10 +468,12 @@ separate_species_var = ctk.BooleanVar(
     value=_saved_config.get("separate_species", True))
 separate_marker_var = ctk.BooleanVar(
     value=_saved_config.get("separate_marker", True))
-save_metadata_var = ctk.BooleanVar(value=_saved_config.get("save_metadata", True))
+save_metadata_var = ctk.BooleanVar(
+    value=_saved_config.get("save_metadata", True))
 save_no_matches_var = ctk.BooleanVar(
     value=_saved_config.get("save_no_matches", True))
-save_summary_var = ctk.BooleanVar(value=_saved_config.get("save_summary", True))
+save_summary_var = ctk.BooleanVar(
+    value=_saved_config.get("save_summary", True))
 save_zero_species_var = ctk.BooleanVar(
     value=_saved_config.get("save_zero_species", True))
 
@@ -579,7 +581,8 @@ zero_species_checkbox.pack(anchor="w", pady=2)
 # DATABASE (alongside the file outputs)---------------------------------------------------------
 # the database file itself is shared program-wide chosen once in Settings
 
-save_database_var = ctk.BooleanVar(value=_saved_config.get("save_database", False))
+save_database_var = ctk.BooleanVar(
+    value=_saved_config.get("save_database", False))
 
 database_checkbox = ctk.CTkCheckBox(
     scroll,
@@ -806,7 +809,8 @@ ctk.CTkLabel(
     justify="left", text_color="gray", wraplength=700, font=("Arial", 11)
 ).pack(anchor="w", pady=(0, 5))
 
-strip_chars_var = ctk.BooleanVar(value=_saved_config.get("strip_chars_enabled", False))
+strip_chars_var = ctk.BooleanVar(
+    value=_saved_config.get("strip_chars_enabled", False))
 ctk.CTkCheckBox(
     settings_scroll, text="Strip these characters:", variable=strip_chars_var
 ).pack(anchor="w", pady=(0, 2))
@@ -867,12 +871,14 @@ length_partial_frame.pack(fill="x", pady=5)
 
 length_partial_min_entry = ctk.CTkEntry(
     length_partial_frame, placeholder_text="min")
-length_partial_min_entry.insert(0, _saved_config.get("length_partial_min", "200"))
+length_partial_min_entry.insert(
+    0, _saved_config.get("length_partial_min", "200"))
 length_partial_min_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
 length_partial_max_entry = ctk.CTkEntry(
     length_partial_frame, placeholder_text="max")
-length_partial_max_entry.insert(0, _saved_config.get("length_partial_max", "2000"))
+length_partial_max_entry.insert(
+    0, _saved_config.get("length_partial_max", "2000"))
 length_partial_max_entry.pack(side="left", fill="x", expand=True)
 
 ctk.CTkLabel(settings_scroll, text="Per-marker overrides (optional)").pack(
@@ -887,7 +893,8 @@ ctk.CTkLabel(
 ).pack(anchor="w")
 
 marker_bands_textbox = ctk.CTkTextbox(settings_scroll, height=90)
-marker_bands_textbox.insert("1.0", _saved_config.get("marker_length_bands_text", ""))
+marker_bands_textbox.insert(
+    "1.0", _saved_config.get("marker_length_bands_text", ""))
 marker_bands_textbox.pack(fill="x", pady=5)
 
 
@@ -936,6 +943,108 @@ batch_pause_entry.insert(0, _saved_config.get("batch_pause", "30"))
 # not packed here - only shown when BOLD or "NCBI + BOLD" is selected
 
 
+# SETTINGS PRESETS-----------------------------------------------------------
+# Named snapshots of everything collect_current_settings() covers - scoring,
+# markers/filters, output options, character stripping. NOT credentials or
+# the database connection, which stay as-is across preset switches. Useful
+# when different projects/taxon groups need different tuning (e.g. "Fungi
+# ITS" vs "Plants matK") without re-entering every slider each time.
+
+ctk.CTkLabel(settings_scroll, text="💾 SETTINGS PRESETS", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(15, 5))
+ctk.CTkLabel(
+    settings_scroll,
+    text="Save the scoring/markers/filters/output settings above (not "
+         "NCBI credentials or the database connection) as a named preset, "
+         "and switch between presets later.",
+    justify="left", text_color="gray", wraplength=700, font=("Arial", 11)
+).pack(anchor="w", pady=(0, 5))
+
+_saved_presets = load_presets()
+
+preset_row = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+preset_row.pack(fill="x", pady=(0, 5))
+
+preset_var = ctk.StringVar()
+preset_menu = ctk.CTkOptionMenu(
+    preset_row, variable=preset_var, values=["(none saved)"])
+preset_menu.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+preset_status_label = ctk.CTkLabel(settings_scroll, text="", text_color="gray")
+
+
+def refresh_preset_menu(select=None):
+    names = sorted(_saved_presets.keys())
+    preset_menu.configure(values=names or ["(none saved)"])
+    if select in names:
+        preset_var.set(select)
+    elif names:
+        preset_var.set(names[0])
+    else:
+        preset_var.set("(none saved)")
+
+
+def load_selected_preset():
+    name = preset_var.get()
+    if name not in _saved_presets:
+        preset_status_label.configure(
+            text="No preset selected.", text_color="red")
+        return
+    apply_settings(_saved_presets[name])
+    preset_status_label.configure(
+        text=f"Loaded preset \"{name}\".", text_color="white")
+
+
+def delete_selected_preset():
+    name = preset_var.get()
+    if name not in _saved_presets:
+        return
+    del _saved_presets[name]
+    save_presets(_saved_presets)
+    refresh_preset_menu()
+    preset_status_label.configure(
+        text=f"Deleted preset \"{name}\".", text_color="white")
+
+
+ctk.CTkButton(
+    preset_row, text="Load", width=70, command=load_selected_preset
+).pack(side="left", padx=(0, 5))
+ctk.CTkButton(
+    preset_row, text="Delete", width=70, command=delete_selected_preset
+).pack(side="left")
+
+new_preset_row = ctk.CTkFrame(settings_scroll, fg_color="transparent")
+new_preset_row.pack(fill="x", pady=(0, 5))
+
+new_preset_name_entry = ctk.CTkEntry(
+    new_preset_row, placeholder_text="Preset name")
+new_preset_name_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+
+def save_current_as_preset():
+    name = new_preset_name_entry.get().strip()
+    if not name:
+        preset_status_label.configure(
+            text="Type a name for the preset first.", text_color="red")
+        return
+    verb = "Updated" if name in _saved_presets else "Saved"
+    _saved_presets[name] = collect_current_settings()
+    save_presets(_saved_presets)
+    refresh_preset_menu(select=name)
+    new_preset_name_entry.delete(0, "end")
+    preset_status_label.configure(
+        text=f"{verb} preset \"{name}\".", text_color="white")
+
+
+ctk.CTkButton(
+    new_preset_row, text="Save as new preset", command=save_current_as_preset
+).pack(side="left")
+
+preset_status_label.pack(anchor="w", pady=(0, 10))
+
+refresh_preset_menu()
+
+
 # SCORING SLIDERS (right panel)----------------------------------------------------------------------------
 
 ctk.CTkLabel(right, text="📊 SCORING", font=("Arial", 18, "bold")).pack(pady=10)
@@ -960,6 +1069,12 @@ def slider(label, config_key, default):
 
     s.configure(command=update)
     s.pack(fill="x")
+
+    # apply_settings() (used by preset loading) needs to update this
+    # label too when it moves the slider programmatically - s.set()
+    # doesn't fire the command callback above, so nothing else keeps it
+    # in sync
+    s.value_label = value
 
     return s
 
@@ -1190,8 +1305,10 @@ def run_search():
         )
 
         if resume_jobs is not None and resume_baseline_summary is not None:
-            current_data = merge_summary_dataframe(resume_baseline_summary, results)
-            current_matched = merge_matched_set(resume_baseline_summary, results)
+            current_data = merge_summary_dataframe(
+                resume_baseline_summary, results)
+            current_matched = merge_matched_set(
+                resume_baseline_summary, results)
             current_species_list = list(current_data["Species"])
             current_markers = [
                 c[:-len("_count")] for c in current_data.columns
@@ -1200,7 +1317,8 @@ def run_search():
             ]
         else:
             current_matched = {(sp, mk) for sp, mk, _, _ in results}
-            current_data = build_summary_dataframe(results, species_list, markers)
+            current_data = build_summary_dataframe(
+                results, species_list, markers)
             current_species_list = species_list
             current_markers = markers
 
@@ -1613,7 +1731,8 @@ def run_search():
             # (rather than once for the whole run) specifically so results
             # land in `results`/db_pending, and therefore in a checkpoint,
             # well before the entire run finishes
-            batch_seen_jobs = set(ncbi_results.keys()) | set(bold_results.keys())
+            batch_seen_jobs = set(ncbi_results.keys()) | set(
+                bold_results.keys())
 
             for job in batch_seen_jobs:
                 species, marker = job
@@ -1645,7 +1764,8 @@ def run_search():
     except Exception as e:
         log(f"Final checkpoint failed: {e} - most recent periodic "
             "checkpoint (if any) is still on disk/DB.")
-        retrieval_data = build_summary_dataframe(results, species_list, markers)
+        retrieval_data = build_summary_dataframe(
+            results, species_list, markers)
 
     if checkpoint_conn is not None:
         checkpoint_conn.close()
@@ -1756,18 +1876,16 @@ def update_status(text):
     Terminal.after(0, lambda: terminal_status_label.configure(text=text))
 
 
-def on_closing():
-    save_config({
-        "ncbi_email": ncbi_email_entry.get().strip(),
-        "ncbi_api_key": ncbi_api_key_entry.get().strip(),
-        # MySQL password is intentionally never saved - re-entered each session
-        "db_backend": db_config.backend,
-        "db_sqlite_path": db_config.sqlite_path,
-        "db_mysql_host": db_config.mysql_host,
-        "db_mysql_port": db_config.mysql_port,
-        "db_mysql_user": db_config.mysql_user,
-        "db_mysql_database": db_config.mysql_database,
-
+def collect_current_settings():
+    """
+    The "tuning" subset of the app's settings - scoring, markers/filters,
+    output options, character stripping - as opposed to credentials or the
+    database connection. This is the shape both config.json's per-session
+    auto-save and named presets (see apply_settings/save_presets) use, so
+    a preset is exactly "everything on_closing() would otherwise silently
+    carry over to next session," just named and switchable on demand.
+    """
+    return {
         # request/search tuning (Settings tab)
         "sleep_interval": sleep_entry.get(),
         "workers": workers_entry.get(),
@@ -1808,12 +1926,98 @@ def on_closing():
         # character stripping (e.g. hybrid × marker)
         "strip_chars_enabled": strip_chars_var.get(),
         "strip_chars": strip_chars_entry.get(),
+    }
+
+
+def apply_settings(settings):
+    """
+    Inverse of collect_current_settings() - pushes a settings dict onto
+    the live widgets, at runtime (not just at startup). Used by preset
+    loading; startup restore uses the same _saved_config.get(key, default)
+    values each widget was already created with, so this only needs to
+    *change* widgets from whatever they currently show, not initialize them.
+    """
+    def set_entry(entry, key, default):
+        entry.delete(0, "end")
+        entry.insert(0, settings.get(key, default))
+
+    set_entry(sleep_entry, "sleep_interval", "0.1")
+    set_entry(workers_entry, "workers", "5")
+    set_entry(candidates_entry, "candidates", "10")
+    set_entry(top_n_entry, "top_n", "1")
+    set_entry(batch_size_entry, "batch_size", "10")
+    set_entry(batch_pause_entry, "batch_pause", "30")
+    set_entry(length_full_min_entry, "length_full_min", "300")
+    set_entry(length_full_max_entry, "length_full_max", "1200")
+    set_entry(length_partial_min_entry, "length_partial_min", "200")
+    set_entry(length_partial_max_entry, "length_partial_max", "2000")
+
+    marker_bands_textbox.delete("1.0", "end")
+    marker_bands_textbox.insert(
+        "1.0", settings.get("marker_length_bands_text", ""))
+
+    def set_slider(s, key, default):
+        v = int(settings.get(key, default))
+        s.set(v)
+        # s.set() doesn't fire s's command
+        s.value_label.configure(text=str(v))
+
+    set_slider(belgium_s, "score_belgium", 40)
+    set_slider(neighbor_s, "score_neighbor", 20)
+    set_slider(europe_s, "score_europe", 5)
+    set_slider(length_s, "score_length_bonus", 10)
+    set_slider(bad_penalty_s, "score_bad_penalty", 100)
+
+    saved_markers = settings.get("selected_markers")
+    for m, v in marker_vars.items():
+        v.set((m in saved_markers) if saved_markers is not None else False)
+    set_entry(extra_markers, "extra_markers", "")
+
+    saved_bad_words = settings.get("selected_bad_words")
+    for w, v in bad_words_default.items():
+        v.set((w in saved_bad_words) if saved_bad_words is not None else True)
+    set_entry(extra_bad, "extra_bad_words", "")
+
+    separate_species_var.set(settings.get("separate_species", True))
+    separate_marker_var.set(settings.get("separate_marker", True))
+    save_metadata_var.set(settings.get("save_metadata", True))
+    save_no_matches_var.set(settings.get("save_no_matches", True))
+    save_summary_var.set(settings.get("save_summary", True))
+    save_zero_species_var.set(settings.get("save_zero_species", True))
+    save_database_var.set(settings.get("save_database", False))
+
+    strip_chars_var.set(settings.get("strip_chars_enabled", False))
+    set_entry(strip_chars_entry, "strip_chars", "×")
+
+    # re-enforce the same separate_species/separate_marker invariant
+    # on_species_toggle keeps in sync for live toggling
+    if not separate_species_var.get():
+        marker_checkbox.configure(state="disabled")
+        separate_marker_var.set(False)
+    else:
+        marker_checkbox.configure(state="normal")
+
+    update_preview()
+
+
+def on_closing():
+    save_config({
+        "ncbi_email": ncbi_email_entry.get().strip(),
+        "ncbi_api_key": ncbi_api_key_entry.get().strip(),
+        # MySQL password is intentionally never saved - re-entered each session
+        "db_backend": db_config.backend,
+        "db_sqlite_path": db_config.sqlite_path,
+        "db_mysql_host": db_config.mysql_host,
+        "db_mysql_port": db_config.mysql_port,
+        "db_mysql_user": db_config.mysql_user,
+        "db_mysql_database": db_config.mysql_database,
 
         # deliberately NOT saved: species list/CSV path, output directory,
         # resume state, and the NCBI/BOLD source choice + retry checkboxes
         # - these are per-run choices, not standing settings, and
         # auto-restoring them (especially output_dir or an old species
         # list) on every launch would be surprising rather than convenient
+        **collect_current_settings(),
     })
 
     # ThreadPoolExecutor workers spawned by run_search() are non-daemon, so a plain exit would hang until any in-flight NCBI/BOLD calls finish. Force-kill the process instead.
