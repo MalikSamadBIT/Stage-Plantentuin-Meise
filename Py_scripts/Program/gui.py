@@ -951,11 +951,23 @@ ctk.CTkLabel(
     settings_scroll,
     text="Save the scoring/markers/filters/output settings above (not "
          "NCBI credentials or the database connection) as a named preset, "
-         "and switch between presets later.",
+         "and switch between presets later. \"Default\" resets everything "
+         "back to the app's factory values.",
     justify="left", text_color="gray", wraplength=700, font=("Arial", 11)
 ).pack(anchor="w", pady=(0, 5))
 
+DEFAULT_PRESET_NAME = "Default"
+
 _saved_presets = load_presets()
+
+# apply_settings({}) already falls back to every widget's own factory
+# default (every settings.get(key, default) call in it carries that same
+# default) - so the built-in "Default" preset is just the empty dict,
+# seeded once so it's always in the list even before the user saves
+# anything of their own.
+if DEFAULT_PRESET_NAME not in _saved_presets:
+    _saved_presets[DEFAULT_PRESET_NAME] = {}
+    save_presets(_saved_presets)
 
 preset_row = ctk.CTkFrame(settings_scroll, fg_color="transparent")
 preset_row.pack(fill="x", pady=(0, 5))
@@ -993,6 +1005,10 @@ def load_selected_preset():
 def delete_selected_preset():
     name = preset_var.get()
     if name not in _saved_presets:
+        return
+    if name == DEFAULT_PRESET_NAME:
+        preset_status_label.configure(
+            text="The \"Default\" preset can't be deleted.", text_color="red")
         return
     del _saved_presets[name]
     save_presets(_saved_presets)
