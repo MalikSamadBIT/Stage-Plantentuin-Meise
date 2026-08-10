@@ -1,7 +1,9 @@
 import logging
 import os
+import shutil
 import threading
 import tkinter
+from datetime import datetime
 from tkinter import filedialog, ttk
 
 import customtkinter as ctk
@@ -726,11 +728,13 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
             text=f"{len(rows)} row(s) returned.", text_color="white")
         run_button.configure(state="normal")
 
-    def query_succeeded_write(affected):
+    def query_succeeded_write(affected, backup_path=None):
         clear_results()
         text = (f"{affected} row(s) affected."
                 if affected is not None and affected >= 0
                 else "Statement executed successfully.")
+        if backup_path:
+            text += f" Backup saved to {os.path.basename(backup_path)}."
         status_label.configure(text=text, text_color="green")
         run_button.configure(state="normal")
         if on_data_changed:
@@ -741,8 +745,28 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
             text=f"Query failed: {error}", text_color="red")
         run_button.configure(state="normal")
 
+    def backup_sqlite_before_write():
+        # a cheap "just copy the file" safety net before a confirmed write -
+        # MySQL has no equivalent (would need a mysqldump-style export), so
+        # this only applies to the SQLite backend. Returns the backup path,
+        # or None if no backup was made.
+        if db_config.backend != "sqlite" or not db_config.sqlite_path:
+            return None
+
+        base, ext = os.path.splitext(db_config.sqlite_path)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = f"{base}.backup-{timestamp}{ext}"
+        shutil.copy2(db_config.sqlite_path, backup_path)
+        return backup_path
+
     def do_run(sql):
         try:
+            # if the backup itself fails (disk full, permissions, ...) the
+            # write is deliberately not attempted - better to surface that
+            # as the error than run an unprotected destructive statement
+            backup_path = (None if looks_read_only(sql)
+                           else backup_sqlite_before_write())
+
             conn = database.connect(db_config)
             try:
                 cur = conn.execute(sql)
@@ -756,7 +780,8 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
                     conn.commit()
                     affected = cur.rowcount
                     conn.close()
-                    parent.after(0, lambda: query_succeeded_write(affected))
+                    parent.after(
+                        0, lambda: query_succeeded_write(affected, backup_path))
             except Exception:
                 conn.rollback()
                 conn.close()
