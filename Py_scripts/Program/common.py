@@ -103,20 +103,47 @@ def sanitize(name):
 
 
 # COUNTRY GROUPING-----------------------------------------
-# Shared by both NCBI's and BOLD's scoring functions.
+# Shared by both NCBI's and BOLD's scoring functions. Which locations count
+# as the target country vs. a neighboring country is configurable in the
+# Settings tab (saved with the scoring settings/presets, see gui.py's
+# collect_current_settings/apply_settings) - the lists below are just the
+# factory defaults, and set_country_groups() is how the Settings tab
+# changes what's actually in effect.
+
+DEFAULT_TARGET_COUNTRY_NAMES = ["belgium", "belgië", "belgique"]
+DEFAULT_NEIGHBOR_COUNTRY_NAMES = [
+    "netherlands", "nederland",
+    "germany", "deutschland",
+    "france", "frankrijk",
+    "luxembourg", "luxemburg",
+]
+
+_target_country_names = list(DEFAULT_TARGET_COUNTRY_NAMES)
+_neighbor_country_names = list(DEFAULT_NEIGHBOR_COUNTRY_NAMES)
+
+
+def set_country_groups(target_names, neighbor_names):
+    """
+    Changes which location strings detect_country_group() below scores as
+    "target"/"neighbor". Names are matched case-insensitively as substrings
+    of a sequence's location field, so include every language/spelling
+    variant that should count (e.g. a country's name in multiple
+    languages).
+    """
+    global _target_country_names, _neighbor_country_names
+    _target_country_names = [
+        n.strip().lower() for n in target_names if n.strip()]
+    _neighbor_country_names = [
+        n.strip().lower() for n in neighbor_names if n.strip()]
+
 
 def detect_country_group(location: str):
     location = (location or "").lower()
 
-    if any(x in location for x in ["belgium", "belgië", "belgique"]):
-        return "belgium"
+    if any(x in location for x in _target_country_names):
+        return "target"
 
-    if any(x in location for x in [
-        "netherlands", "nederland",
-        "germany", "deutschland",
-        "france", "frankrijk",
-        "luxembourg", "luxemburg"
-    ]):
+    if any(x in location for x in _neighbor_country_names):
         return "neighbor"
 
     if location:
