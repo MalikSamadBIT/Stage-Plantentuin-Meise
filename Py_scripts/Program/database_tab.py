@@ -658,6 +658,10 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
     results_hsb.pack(side=tkinter.BOTTOM, fill=tkinter.X)
     results_tree.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=True)
 
+    # last successful SELECT's results, kept around so "Export Results to
+    # CSV" doesn't have to re-run the query
+    last_result = {"columns": None, "rows": None}
+
     def populate_results(columns, rows):
         results_tree.delete(*results_tree.get_children())
         results_tree["columns"] = columns
@@ -670,6 +674,9 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
     def clear_results():
         results_tree.delete(*results_tree.get_children())
         results_tree["columns"] = []
+        last_result["columns"] = None
+        last_result["rows"] = None
+        export_button.configure(state="disabled")
 
     def looks_read_only(sql):
         return sql.strip().lower().startswith(_READ_ONLY_PREFIXES)
@@ -712,6 +719,9 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
 
     def query_succeeded_read(columns, rows):
         populate_results(columns, rows)
+        last_result["columns"] = columns
+        last_result["rows"] = rows
+        export_button.configure(state="normal" if rows else "disabled")
         status_label.configure(
             text=f"{len(rows)} row(s) returned.", text_color="white")
         run_button.configure(state="normal")
@@ -779,5 +789,45 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
 
         threading.Thread(target=do_run, args=(sql,), daemon=True).start()
 
-    run_button = ctk.CTkButton(parent, text="Run Query", command=run_query)
-    run_button.pack(anchor="w", padx=10, pady=(0, 10))
+    def export_results_csv():
+        columns = last_result["columns"]
+        rows = last_result["rows"]
+
+        if not columns or not rows:
+            status_label.configure(
+                text="No query results to export - run a SELECT first.",
+                text_color="red")
+            return
+
+        path = filedialog.asksaveasfilename(
+            parent=root,
+            title="Export query results to CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("All files", "*.*")]
+        )
+        if not path:
+            return
+
+        try:
+            pd.DataFrame(rows, columns=columns).to_csv(path, index=False)
+        except Exception as e:
+            status_label.configure(
+                text=f"CSV export failed: {e}", text_color="red")
+            return
+
+        status_label.configure(
+            text=f"Exported {len(rows)} row(s) to {os.path.basename(path)}.",
+            text_color="white"
+        )
+
+    button_row = ctk.CTkFrame(parent, fg_color="transparent")
+    button_row.pack(anchor="w", padx=10, pady=(0, 10))
+
+    run_button = ctk.CTkButton(button_row, text="Run Query", command=run_query)
+    run_button.pack(side="left", padx=(0, 5))
+
+    export_button = ctk.CTkButton(
+        button_row, text="Export Results to CSV...",
+        command=export_results_csv, state="disabled"
+    )
+    export_button.pack(side="left")
