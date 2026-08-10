@@ -2,6 +2,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import threading
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -87,6 +88,50 @@ def build_blast_tab(parent, root=None):
     )
     query_entry.pack(side="left", pady=10)
 
+    # BATCH QUERY (FASTA FILE)-----------------------------------------
+    # an alternative to typing a single sequence above - BLAST+'s tools
+    # natively accept a multi-sequence FASTA as -query and report results
+    # for every sequence in it in one run, so this doesn't need to loop
+    # and shell out per sequence.
+
+    query_file_path = ctk.StringVar()
+
+    def choose_query_file():
+        path = filedialog.askopenfilename(
+            parent=root,
+            title="Select a FASTA file with one or more query sequences",
+            filetypes=[("FASTA", "*.fasta *.fa *.fna"), ("All files", "*.*")]
+        )
+        if path:
+            query_file_path.set(path)
+
+    def clear_query_file():
+        query_file_path.set("")
+
+    query_file_bar = ctk.CTkFrame(parent, fg_color="transparent")
+    query_file_bar.pack(fill="x", padx=10, pady=(0, 5))
+
+    ctk.CTkButton(
+        query_file_bar, text="Load Query FASTA File...",
+        command=choose_query_file
+    ).pack(side="left", padx=(0, 5))
+
+    ctk.CTkButton(
+        query_file_bar, text="Clear", command=clear_query_file, width=60
+    ).pack(side="left")
+
+    ctk.CTkLabel(
+        parent, textvariable=query_file_path, text_color="gray"
+    ).pack(anchor="w", padx=10, pady=(0, 2))
+
+    ctk.CTkLabel(
+        parent,
+        text="A loaded FASTA file BLASTs every sequence in it and takes "
+             "priority over the single query above - use Clear to go back "
+             "to typing one sequence.",
+        text_color="gray", font=("Arial", 11)
+    ).pack(anchor="w", padx=10, pady=(0, 5))
+
     blast_type_var = ctk.StringVar(value="blastn")
 
     run_bar = ctk.CTkFrame(parent, fg_color="transparent")
@@ -99,9 +144,10 @@ def build_blast_tab(parent, root=None):
         values=["blastn", "blastp", "blastx", "tblastn", "tblastx"]
     ).pack(side="left", padx=(0, 10))
 
-    ctk.CTkButton(
+    run_button = ctk.CTkButton(
         run_bar, text="Run BLAST", command=lambda: run_blast()
-    ).pack(side="left", padx=(0, 5))
+    )
+    run_button.pack(side="left", padx=(0, 5))
 
     ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
         anchor="w", padx=10, pady=10)
@@ -240,28 +286,68 @@ def build_blast_tab(parent, root=None):
                 text="Select or create a BLAST database first.")
             return
 
-        query_seq = query_entry.get().strip()
-        if not query_seq:
-            status_label.configure(text="Enter a query sequence first.")
-            return
+        loaded_file = query_file_path.get()
 
-        with open(query_fasta, "w") as f:
-            f.write(f">query\n{query_seq}\n")
+        if loaded_file:
+            if not os.path.isfile(loaded_file):
+                status_label.configure(
+                    text="The loaded query FASTA file no longer exists.")
+                return
+
+            query_arg = _blast_safe_path(os.path.abspath(loaded_file))
+
+            with open(loaded_file, encoding="utf-8", errors="ignore") as f:
+                query_count = f.read().count(">")
+
+            batch_note = (
+                f" (batch of {query_count} "
+                f"quer{'y' if query_count == 1 else 'ies'})"
+            )
+        else:
+            query_seq = query_entry.get().strip()
+            if not query_seq:
+                status_label.configure(
+                    text="Enter a query sequence or load a query FASTA "
+                         "file first.")
+                return
+
+            with open(query_fasta, "w") as f:
+                f.write(f">query\n{query_seq}\n")
+
+            query_arg = _blast_safe_path(os.path.abspath(query_fasta))
+            batch_note = ""
 
         blast_program = blast_type_var.get()
+        db_arg = _blast_safe_path(blast_db_path.get())
 
-        try:
-            result = subprocess.run(
-                [os.path.join(BLAST_BIN, f"{blast_program}.exe"),
-                 "-query", _blast_safe_path(os.path.abspath(query_fasta)),
-                 "-db", _blast_safe_path(blast_db_path.get()),
-                 "-outfmt", "0"],
-                capture_output=True, text=True, check=True
-            )
-        except subprocess.CalledProcessError as e:
-            status_label.configure(text="BLAST run failed.")
-            set_output(e.stderr or str(e))
-            return
+        run_button.configure(state="disabled")
+        status_label.configure(
+            text=f"Running {blast_program}...", text_color="gray")
 
-        set_output(result.stdout)
-        status_label.configure(text=f"{blast_program} complete.")
+        def do_run():
+            try:
+                result = subprocess.run(
+                    [os.path.join(BLAST_BIN, f"{blast_program}.exe"),
+                     "-query", query_arg, "-db", db_arg, "-outfmt", "0"],
+                    capture_output=True, text=True, check=True
+                )
+            except subprocess.CalledProcessError as e:
+                error_text = e.stderr or str(e)
+                parent.after(0, lambda: blast_failed(error_text))
+                return
+            parent.after(
+                0, lambda: blast_succeeded(
+                    result.stdout, blast_program, batch_note))
+
+        threading.Thread(target=do_run, daemon=True).start()
+
+    def blast_failed(error_text):
+        status_label.configure(text="BLAST run failed.", text_color="red")
+        set_output(error_text)
+        run_button.configure(state="normal")
+
+    def blast_succeeded(stdout, blast_program, batch_note):
+        set_output(stdout)
+        status_label.configure(
+            text=f"{blast_program} complete.{batch_note}", text_color="white")
+        run_button.configure(state="normal")
