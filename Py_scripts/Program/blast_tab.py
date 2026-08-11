@@ -2,6 +2,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 from tkinter import filedialog
 
@@ -37,7 +38,9 @@ def build_blast_tab(parent, root=None):
     root: the main app window, used as the file-dialog/dialog parent.
     """
 
-    query_fasta = "query.fasta"
+    # a real temp path, not a bare relative filename - a frozen build's
+    # working directory isn't guaranteed to be writable (or predictable)
+    query_fasta = os.path.join(tempfile.gettempdir(), "flora_fetch_query.fasta")
 
     db_path = ctk.StringVar()
     blast_db_path = ctk.StringVar()

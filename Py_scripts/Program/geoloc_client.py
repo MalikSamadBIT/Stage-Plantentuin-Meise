@@ -1,3 +1,17 @@
+import os
+import sys
+
+if getattr(sys, "frozen", False):
+    # a frozen build bundles its own copy of the (headless-only) Chromium
+    # build Playwright needs - see FloraFetch.spec - rather than relying on
+    # %LOCALAPPDATA%\ms-playwright, which won't exist on a machine that
+    # never separately ran "playwright install". setdefault so an
+    # explicitly-set PLAYWRIGHT_BROWSERS_PATH (e.g. for testing) still wins.
+    os.environ.setdefault(
+        "PLAYWRIGHT_BROWSERS_PATH",
+        os.path.join(sys._MEIPASS, "ms-playwright")
+    )
+
 import json
 import re
 from urllib.parse import quote_plus

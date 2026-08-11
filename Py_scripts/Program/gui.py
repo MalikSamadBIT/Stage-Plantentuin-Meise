@@ -1,7 +1,19 @@
+import os
+import sys
+
+# a PyInstaller --windowed build has no console, so sys.stdout/stderr are
+# None rather than a real stream - print() (see log() below) would crash
+# the first time anything gets logged. Redirect to a null stream instead,
+# same fix regardless of what ends up calling print() (this module or a
+# dependency). Must happen before anything below can print.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
+
 import customtkinter as ctk
 from tkinter import filedialog
 import pandas as pd
-import os
 import time
 import threading
 from collections import defaultdict
@@ -1805,9 +1817,7 @@ def start_run():
 
 
 def request_cancel():
-    # cooperative - run_search checks cancel_event between jobs and finishes
-    # up (final checkpoint, status update) on its own rather than being torn
-    # down here, so whatever's already in flight gets to complete cleanly
+
     cancel_event.set()
     stop_button.configure(state="disabled", text="Stopping...")
     update_status(
