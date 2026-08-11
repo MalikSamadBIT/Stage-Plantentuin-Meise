@@ -16,9 +16,6 @@ try:
 except ImportError:
     SQLite3toMySQL = None
 
-# table dropdown -> (SQL source, columns to select or None for "*")
-# sequence is excluded from the Sequences columns - it's long and would
-# dominate the view - but export_fasta still pulls it back out per row
 TABLE_OPTIONS = {
     "Sequences": ("sequences_view", [
         "species", "queried_as", "marker", "source", "accession", "organism",
@@ -120,8 +117,7 @@ def _build_view_tab(parent, root, db_config):
         filter_bar, text="Clear all", command=lambda: clear_filters()
     ).pack(side=tkinter.LEFT, padx=(4, 8))
 
-    # active (committed) filters are shown as removable chips here - each new
-    # "Apply" narrows further on top of these, instead of replacing them
+    # active (committed) filters are shown as removable chips here - each new "Apply" narrows further on top of these, instead of replacing them
     active_filters_row = tkinter.Frame(parent, bg="#2b2b2b")
     active_filters_row.pack(fill="x", padx=10)
 
@@ -241,8 +237,7 @@ def _build_view_tab(parent, root, db_config):
             f"{status_suffix}")
 
     def preview_filter(*_):
-        # live-as-you-type preview, on top of the committed filters below -
-        # not added to active_filters until "Apply" (or Enter) is pressed
+
         if full_df is None:
             return
 
@@ -367,10 +362,6 @@ def _build_view_tab(parent, root, db_config):
             text=f"Exported {len(rows)} sequence(s) to {os.path.basename(path)}.")
 
     # REACT TO THE SHARED DATABASE CHOICE---------------------------------
-    # db_config is shared with the Settings tab (and Fetch FASTA/Synonym
-    # search) - reload automatically whenever the backend/target changes
-    # there, and load immediately if a database was already configured
-    # before this tab was built.
 
     db_config.trace_add("write", lambda *_: load_data())
 
@@ -452,9 +443,8 @@ def _build_transfer_tab(parent, root, db_config):
 
     fields_frame.grid_columnconfigure(1, weight=0)
 
-    # prefilled from the Settings tab's MySQL fields, if any are set there -
-    # still a separate/independent destination, just a convenient starting
-    # point (password is never carried over, same as in Settings)
+    # prefilled from the Settings tab's MySQL fields, if any are set there still a separate/independent destination, just a convenient starting
+
     host_entry = labeled_entry(
         0, "MySQL host", default=db_config.mysql_host or "localhost")
     port_entry = labeled_entry(
@@ -493,7 +483,7 @@ def _build_transfer_tab(parent, root, db_config):
             append_log(self.format(record))
 
     def run_transfer(sqlite_file, host, port, user, password, mysql_db,
-                      chunk, truncate):
+                     chunk, truncate):
         logger = logging.getLogger("SQLite3toMySQL")
         handler = _LogBoxHandler()
         handler.setFormatter(logging.Formatter(
@@ -596,11 +586,6 @@ def _build_transfer_tab(parent, root, db_config):
 
 # QUERY TAB (raw SQL against the active database)-----------------------
 
-# a query "looks read-only" if - after stripping leading whitespace - it
-# starts with one of these. Anything else is treated as a write and
-# confirmed first. This is a guard against accidental data loss, not a
-# security boundary - the user is running their own SQL against their own
-# database, same trust level as typing it into a DB client directly.
 _READ_ONLY_PREFIXES = (
     "select", "pragma", "show", "explain", "with", "desc", "describe"
 )
@@ -746,10 +731,7 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
         run_button.configure(state="normal")
 
     def backup_sqlite_before_write():
-        # a cheap "just copy the file" safety net before a confirmed write -
-        # MySQL has no equivalent (would need a mysqldump-style export), so
-        # this only applies to the SQLite backend. Returns the backup path,
-        # or None if no backup was made.
+
         if db_config.backend != "sqlite" or not db_config.sqlite_path:
             return None
 
@@ -761,9 +743,7 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
 
     def do_run(sql):
         try:
-            # if the backup itself fails (disk full, permissions, ...) the
-            # write is deliberately not attempted - better to surface that
-            # as the error than run an unprotected destructive statement
+
             backup_path = (None if looks_read_only(sql)
                            else backup_sqlite_before_write())
 

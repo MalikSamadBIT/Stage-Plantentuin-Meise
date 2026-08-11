@@ -119,10 +119,6 @@ def score_bold_record(record, w, bad_words, length_bands=None):
 
 
 # FETCHING FROM BOLD------------------------------------------------------
-# BOLD's v5 API is a 3-step token flow, and a species query returns every
-# marker for that species in one go - so we fetch/cache once per species
-# and reuse it across all requested markers instead of re-querying BOLD
-# for each marker separately.
 
 def fetch_bold_records(species, rate_limiter, log=print):
 
@@ -231,7 +227,8 @@ def search_and_fetch_bold(species, marker, rate_limiter, w, bad_words, cache,
         if not records:
             return []
 
-        scored = [(score_bold_record(r, w, bad_words, length_bands), r) for r in records]
+        scored = [(score_bold_record(r, w, bad_words, length_bands), r)
+                  for r in records]
         scored.sort(key=lambda pair: pair[0], reverse=True)
 
         return [build_bold_result(r, sc) for sc, r in scored[:top_n]]

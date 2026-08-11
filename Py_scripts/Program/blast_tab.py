@@ -19,15 +19,7 @@ else:
 
 
 def _blast_safe_path(path):
-    """
-    NCBI BLAST+'s Windows command-line tools mis-handle any path containing
-    a space - confirmed: makeblastdb silently rejects -in/-out when their
-    directory has a space in it, and even a space-containing working
-    directory alone breaks its internal post-build check - regardless of
-    proper argv quoting on our end. The fix is to pass the Windows short
-    (8.3) path instead, which is guaranteed space-free, for any argument
-    handed to a BLAST+ executable.
-    """
+
     directory, name = os.path.split(path)
     if " " not in directory or not os.path.isdir(directory):
         return path
@@ -89,10 +81,6 @@ def build_blast_tab(parent, root=None):
     query_entry.pack(side="left", pady=10)
 
     # BATCH QUERY (FASTA FILE)-----------------------------------------
-    # an alternative to typing a single sequence above - BLAST+'s tools
-    # natively accept a multi-sequence FASTA as -query and report results
-    # for every sequence in it in one run, so this doesn't need to loop
-    # and shell out per sequence.
 
     query_file_path = ctk.StringVar()
 

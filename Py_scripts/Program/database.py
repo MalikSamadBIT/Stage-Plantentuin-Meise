@@ -179,20 +179,7 @@ SELECT
 FROM sequences
 JOIN species ON species.id = sequences.species_id;
 """
-# sequences.species is normalized out into its own table (species_id FK)
-# so the same canonical species can be found under several synonym names
-# (see synonyms table / queried_as) without duplicating the name string
-# everywhere - sequences_view re-flattens that back to a plain "species"
-# column so existing "SELECT ... FROM sequences" readers (database_tab.py,
-# blast_tab.py) don't need to know about the join.
 
-# MySQL equivalents of the schema above. Differences from the SQLite version:
-# AUTO_INCREMENT instead of AUTOINCREMENT, CREATE OR REPLACE VIEW instead of
-# CREATE VIEW IF NOT EXISTS (MySQL has no "IF NOT EXISTS" for views - REPLACE
-# is an idempotent no-op after the first run), and bounded VARCHAR sizes on
-# the columns that sit inside a UNIQUE key or foreign key (canonical_name,
-# marker, accession) since MySQL/InnoDB can't index unbounded TEXT/BLOB
-# columns without an explicit prefix length.
 BASE_SCHEMA_MYSQL = """
 CREATE TABLE IF NOT EXISTS runs (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -363,15 +350,7 @@ def _sequences_needs_migration(conn):
 
 
 def _migrate_sequences_table(conn):
-    # rebuild sequences with species_id/queried_as, preserving existing rows
-    # - SQLite can't ALTER a column's type/constraints or add a REFERENCES
-    # column with data already needing backfill, so this does the classic
-    # SQLite migration dance: build the new table, copy+transform data in,
-    # drop the old one, rename. Wrapped in one explicit transaction so a
-    # failure midway (e.g. a bad row) can't leave a half-built
-    # "sequences_new" behind to break the next connect() attempt - SQLite's
-    # Python driver auto-commits DDL immediately unless a transaction is
-    # opened explicitly first.
+
     conn.execute("DROP TABLE IF EXISTS sequences_new")
 
     try:
@@ -638,11 +617,6 @@ def query_df(conn, sql, params=()):
     return pd.DataFrame([dict(row) for row in rows])
 
 
-# SQLite caps the number of "?" placeholders in a single statement
-# (SQLITE_MAX_VARIABLE_NUMBER - as low as 999 on some builds) - a plain
-# "WHERE accession IN (?, ?, ..., ?)" with one placeholder per accession
-# breaks once the accession list gets large, so this runs the lookup in
-# batches instead. Comfortably under that cap for both backends.
 ACCESSION_CHUNK_SIZE = 500
 
 

@@ -29,13 +29,6 @@ class RateLimiter:
 
 
 # ENCODING-SAFE CSV READING-----------------------------------------
-# pandas.read_csv() without an explicit encoding falls back to the OS
-# locale's default (cp1252 on most Windows setups), which silently
-# mojibakes any non-ASCII character - accented names, the hybrid × marker,
-# etc. - in a file that was actually saved as UTF-8, the standard/default
-# export encoding from Excel, Google Sheets, and most database/GIS tools.
-# Tries UTF-8 first and only falls back to cp1252 if the file genuinely
-# isn't UTF-8, rather than guessing wrong by default.
 
 def read_csv_robust(path, **kwargs):
     try:
@@ -69,12 +62,6 @@ def fix_mojibake(text):
 
 
 # CHARACTER STRIPPING-----------------------------------------
-# General-purpose: species lists sometimes carry characters GenBank/BOLD
-# records don't consistently match on - botanical hybrid names use a "×"
-# multiplication sign (U+00D7), e.g. "Equisetum ×litorale" or "×Schedolium
-# loliaceum", but messy CSV data can have other stray symbols too.
-# Stripping is opt-in and user-specified rather than hardcoded to "×",
-# since whether (and what) to strip depends on the dataset.
 
 def strip_characters(name, chars):
     """
@@ -126,10 +113,7 @@ def detect_country_group(location: str):
 
 
 # PERSISTED SETTINGS-----------------------------------------
-# Stored under the user's profile (not next to the script) so settings
-# survive moving/reinstalling the program folder. Plain text - fine for
-# an NCBI API key (it only raises a rate limit, it isn't a login
-# credential), but don't put anything more sensitive in here.
+
 
 CONFIG_DIR = os.path.join(
     os.getenv("APPDATA") or os.path.expanduser("~"), "NCBI_BOLD_Pipeline"
@@ -152,11 +136,6 @@ def save_config(config):
 
 
 # SETTINGS PRESETS-----------------------------------------
-# Separate from config.json's single "last session" state - named presets
-# let a user switch tuning between projects/taxon groups (e.g. "Fungi ITS"
-# vs "Plants matK") without re-entering every slider/checkbox each time.
-# {preset_name: settings_dict}, same settings_dict shape config.json's
-# tuning keys use - see gui.py's collect_current_settings()/apply_settings().
 
 PRESETS_PATH = os.path.join(CONFIG_DIR, "presets.json")
 
