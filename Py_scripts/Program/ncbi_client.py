@@ -3,9 +3,7 @@ from Bio import Entrez, SeqIO
 from common import detect_country_group
 
 # NCBI SETTINGS-------------------------------------------
-# Entrez.email/api_key are per-user - NCBI requires each user to identify
-# themselves with their own email, so these are set at runtime from the
-# Settings tab (see configure_entrez) instead of being hardcoded here.
+# Entrez.email/api_key are per-user
 
 
 def configure_entrez(email, api_key=None):

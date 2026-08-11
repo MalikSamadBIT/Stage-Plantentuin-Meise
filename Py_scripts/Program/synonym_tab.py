@@ -64,9 +64,6 @@ def build_synonym_tab(
     last_sequence_results = []
     selection_vars = {}
 
-    # the tab frame itself doesn't scroll, and this page is taller than the
-    # window - everything below goes into a scrollable frame instead so the
-    # sequence-search/add-to-database controls at the bottom stay reachable.
     scroll = ctk.CTkScrollableFrame(parent)
     scroll.pack(fill="both", expand=True)
 
@@ -217,9 +214,7 @@ def build_synonym_tab(
     synonym_search_button.pack(side="left")
 
     # SYNONYM SELECTION CHECKLIST---------------------------------------------
-    # populated after "Search Synonyms" - one row per species (canonical name)
-    # plus one row per distinct synonym name found, all pre-checked; uncheck
-    # any name you don't want spent on an NCBI search.
+    # populated after "Search Synonyms"
 
     ctk.CTkLabel(scroll, text="🧬 SELECT NAMES TO SEARCH FOR SEQUENCES", font=(
         "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(5, 2))
@@ -297,7 +292,7 @@ def build_synonym_tab(
                 0,
                 lambda: status_label.configure(
                     text=f"Searching {completed}/{total} species... "
-                         f"(last: {species})",
+                    f"(last: {species})",
                     text_color="white"
                 )
             )
@@ -312,8 +307,8 @@ def build_synonym_tab(
             0,
             lambda: status_label.configure(
                 text=f"Done - looked up {len(results)} species. "
-                     "All names are pre-checked - uncheck any you don't "
-                     "want searched below.",
+                "All names are pre-checked - uncheck any you don't "
+                "want searched below.",
                 text_color="white"
             )
         )
@@ -326,8 +321,7 @@ def build_synonym_tab(
     synonym_search_button.configure(command=start_synonym_search)
 
     # DATABASE-----------------------------------------------------------
-    # the database file itself is chosen once in the Settings tab and shared
-    # across the whole program - this just saves into whatever's configured.
+    # the database file itself is chosen once in the Settings tab and shared across the whole program
 
     ctk.CTkLabel(scroll, text="🗄 DATABASE", font=(
         "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(5, 2))
@@ -375,8 +369,8 @@ def build_synonym_tab(
 
         status_label.configure(
             text=f"Saved {len(last_synonym_results)} species and "
-                 f"{synonym_count} synonym name(s), linked to their "
-                 f"canonical species, to {db_config.display_var.get()}.",
+            f"{synonym_count} synonym name(s), linked to their "
+            f"canonical species, to {db_config.display_var.get()}.",
             text_color="white"
         )
 
@@ -395,12 +389,12 @@ def build_synonym_tab(
             "type": "synonyms",
             "title": "Synonyms",
             "subtitle": f"{len(last_synonym_results)} species - added from "
-                        "Synonym search tab",
+            "Synonym search tab",
             "data": dict(last_synonym_results),
         })
         status_label.configure(
             text=f"Added synonyms for {len(last_synonym_results)} species "
-                 "to the report.",
+            "to the report.",
             text_color="white"
         )
 
@@ -563,7 +557,7 @@ def build_synonym_tab(
                     0,
                     lambda c=completed: seq_status_label.configure(
                         text=f"Searching {c}/{total_jobs} name/marker "
-                             "combinations...",
+                        "combinations...",
                         text_color="white"
                     )
                 )
@@ -582,7 +576,7 @@ def build_synonym_tab(
             0,
             lambda: seq_status_label.configure(
                 text=f"Done - {len(results)} sequence(s) found across "
-                     f"{total_jobs} name/marker combination(s).",
+                f"{total_jobs} name/marker combination(s).",
                 text_color="white"
             )
         )
@@ -599,8 +593,7 @@ def build_synonym_tab(
     seq_search_button.configure(command=start_sequence_search)
 
     # ADD SEQUENCE RESULTS TO DATABASE-----------------------------------
-    # reuses the database picked above - saves the sequence results (and,
-    # again, the synonyms, in case synonyms weren't saved separately yet).
+    # reuses the database picked above
 
     db_save_button = ctk.CTkButton(
         scroll, text="Add Sequence Results to Database", state="disabled")
@@ -637,7 +630,7 @@ def build_synonym_tab(
 
         seq_status_label.configure(
             text=f"Saved {inserted} new sequence(s) (and synonyms) to "
-                 f"{db_config.display_var.get()}.",
+            f"{db_config.display_var.get()}.",
             text_color="white"
         )
 

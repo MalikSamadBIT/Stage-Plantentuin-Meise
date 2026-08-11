@@ -27,9 +27,7 @@ STATUS_COLORS = {
     "no_data": "#9a9a9a",
 }
 
-# rows worth sending to Fetch FASTA - "no_data" is excluded since that
-# means observations couldn't be checked at all, not that sequences are
-# missing.
+# rows worth sending to Fetch FASTA
 MISSING_STATUSES = {"no_sequences", "partial"}
 
 
@@ -77,14 +75,7 @@ def build_gap_tab(
     last_rows = []
     last_target_markers = []
 
-    # observation counts don't depend on target markers - only the (fast,
-    # local) database-coverage check does - so re-running after just
-    # changing markers can reuse counts already fetched this session
-    # instead of hitting the network again. Keyed by (site, species,
-    # start_date, end_date); cleared when the app closes, not persisted -
-    # observation counts grow over time as new sightings get logged, so an
-    # in-memory, session-only cache avoids ever silently going stale across
-    # runs on a different day.
+    # observation counts don't depend on target markers
     observation_cache = {}
 
     # SPECIES INPUT-----------------------------------------------------
@@ -126,7 +117,8 @@ def build_gap_tab(
     input_path_label.pack(anchor="w", padx=10, pady=(0, 5))
 
     def _update_input_path_label(*_):
-        input_path_label.configure(text=csv_path.get() or no_matches_path.get())
+        input_path_label.configure(
+            text=csv_path.get() or no_matches_path.get())
 
     csv_path.trace_add("write", _update_input_path_label)
     no_matches_path.trace_add("write", _update_input_path_label)
@@ -149,7 +141,8 @@ def build_gap_tab(
     def save_shared_species():
         shared_species.set(get_species_list(), source="Gap Report")
 
-    shared_species_button_frame = ctk.CTkFrame(analysis_tab, fg_color="transparent")
+    shared_species_button_frame = ctk.CTkFrame(
+        analysis_tab, fg_color="transparent")
     shared_species_button_frame.pack(fill="x", padx=10, pady=(0, 10))
 
     ctk.CTkButton(
@@ -204,7 +197,8 @@ def build_gap_tab(
         options_row, values=list(SITES.keys()), variable=site_var
     ).pack(side="left", padx=(0, 12))
 
-    ctk.CTkLabel(options_row, text="Start date:").pack(side="left", padx=(0, 4))
+    ctk.CTkLabel(options_row, text="Start date:").pack(
+        side="left", padx=(0, 4))
     start_date_entry = DateEntry(options_row, date_pattern="yyyy-mm-dd")
     start_date_entry.pack(side="left", padx=(0, 12))
     start_date_entry.set_date("2016-02-29")
@@ -304,12 +298,6 @@ def build_gap_tab(
     tree.pack(side=tkinter.TOP, fill=tkinter.BOTH, expand=True)
 
     # BARCODE GAP DRILL-DOWN-------------------------------------------------
-    # A per-species popup rather than an extra column on the results table:
-    # a real assessment needs pairwise alignment across every sequence in a
-    # genus, which is too slow to run eagerly for every row on every
-    # analysis pass - most of which won't even have >=2 sequences for a
-    # marker to begin with. Opened on demand for one selected species/marker
-    # instead.
 
     def get_selected_species():
         selection = tree.selection()
@@ -359,7 +347,8 @@ def build_gap_tab(
         add_report_button = ctk.CTkButton(
             report_row, text="Add to Report", state="disabled")
         add_report_button.pack(side="left")
-        report_status_label = ctk.CTkLabel(report_row, text="", text_color="gray")
+        report_status_label = ctk.CTkLabel(
+            report_row, text="", text_color="gray")
         report_status_label.pack(side="left", padx=(10, 0))
 
         last_result = {}
@@ -484,11 +473,12 @@ def build_gap_tab(
     # RUN / POPULATE----------------------------------------------------
 
     COLUMN_HEADERS = {"species": "Species", "observations": "Observations",
-                       "status_label": "Status"}
+                      "status_label": "Status"}
 
     def populate_tree(rows, target_markers):
         tree.delete(*tree.get_children())
-        columns = ["species", "observations"] + target_markers + ["status_label"]
+        columns = ["species", "observations"] + \
+            target_markers + ["status_label"]
         tree["columns"] = columns
 
         for col in columns:
@@ -542,8 +532,8 @@ def build_gap_tab(
                 0,
                 lambda: status_label.configure(
                     text=f"Reusing {len(cached_names)} cached observation "
-                         f"count(s), fetching {len(to_fetch)} from "
-                         "network...",
+                    f"count(s), fetching {len(to_fetch)} from "
+                    "network...",
                     text_color="white"
                 )
             )
@@ -558,14 +548,9 @@ def build_gap_tab(
             )
 
         if to_fetch:
-            # known synonyms on file (from a previous Synonym search "Save
-            # Synonyms to Database") let a species that doesn't match the
-            # observation site under the name as typed still get a real
-            # count instead of falling back to "no data" - same idea as
-            # count_sequences_by_marker already applies on the sequence
-            # side.
             synonym_conn = (
-                database.connect(db_config) if db_config.is_configured() else None
+                database.connect(
+                    db_config) if db_config.is_configured() else None
             )
             get_synonyms = (
                 (lambda name: database.get_synonym_names(synonym_conn, name))
@@ -655,7 +640,8 @@ def build_gap_tab(
         force_refresh = force_refresh_var.get()
 
         run_button.configure(state="disabled", text="Running...")
-        status_label.configure(text="Running gap analysis...", text_color="white")
+        status_label.configure(
+            text="Running gap analysis...", text_color="white")
 
         threading.Thread(
             target=run_worker,
@@ -686,7 +672,8 @@ def build_gap_tab(
         if not path:
             return
 
-        columns = ["species", "observations"] + last_target_markers + ["status_label"]
+        columns = ["species", "observations"] + \
+            last_target_markers + ["status_label"]
         pd.DataFrame(last_rows)[columns].to_csv(path, index=False)
 
         status_label.configure(
@@ -726,9 +713,6 @@ def build_gap_tab(
         )
 
     # REPORT CONTENTS TAB----------------------------------------------------
-    # Lists whatever's been added from the Retrieval Rate/MSA/Synonym search
-    # tabs' "Add to Report" buttons, plus the gap analysis table above
-    # (always included, not removable), and exports the whole thing as a PDF.
 
     ctk.CTkLabel(contents_tab, text="📎 REPORT CONTENTS", font=(
         "Arial", 16, "bold")).pack(anchor="w", padx=10, pady=(10, 2))
@@ -745,7 +729,7 @@ def build_gap_tab(
     include_chart_var = ctk.BooleanVar(value=True)
     ctk.CTkCheckBox(
         contents_tab, text="Include gap-status summary chart (bar chart of "
-                            "no sequences/partial/complete/no data counts)",
+        "no sequences/partial/complete/no data counts)",
         variable=include_chart_var
     ).pack(anchor="w", padx=10, pady=(0, 5))
 
@@ -803,7 +787,7 @@ def build_gap_tab(
 
         export_status_label.configure(
             text=f"Exported to {os.path.basename(path)} "
-                 f"({1 + len(report_items)} section(s)).",
+            f"({1 + len(report_items)} section(s)).",
             text_color="white"
         )
 

@@ -15,11 +15,7 @@ from pymsa import (
 )
 from pymsa.util.fasta import read_fasta_file_as_list_of_pairs
 
-# When frozen by PyInstaller, sys._MEIPASS is the bundle root in both
-# onefile mode (a temp extraction dir) and onedir mode (the folder next to
-# the exe) - so bundling muscle.exe with `--add-binary "<path>;tools"` and
-# looking for it under "tools/" there covers both packaging modes. Running
-# from source keeps using the dev machine's actual install location.
+
 if getattr(sys, "frozen", False):
     MUSCLE_EXE = os.path.join(sys._MEIPASS, "tools", "muscle.exe")
 else:
@@ -54,10 +50,7 @@ def run_msa(input_file, output_dir, show_grid, show_count, show_consensus):
 
 
 def _max_possible_sum_of_pairs(msa, substitution_matrix):
-    # Best case for a column: every pair of sequences shares whichever
-    # character scores highest against itself in the matrix (e.g. W-W in
-    # Blosum62/PAM250) - that's the ceiling a real column's score is
-    # compared against.
+
     best_self_score = max(
         value for (a, b), value in substitution_matrix.get_distance_matrix().items()
         if a == b
@@ -86,11 +79,7 @@ SCORE_OPTIONS = [
 
 
 def compute_msa_scores(fasta_path, selected=None):
-    # fasta_path must already be aligned (equal-length sequences) - i.e.
-    # the *_aligned.fasta MUSCLE produces, not the raw input FASTA
-    # selected: set of SCORE_OPTIONS keys to compute - None/omitted means
-    # compute everything, and skipping unselected ones also saves time on
-    # larger alignments (Sum of Pairs/Star are the slowest of the bunch)
+    # fasta_path must already be aligned
     if selected is None:
         selected = {key for key, _ in SCORE_OPTIONS}
 
@@ -151,8 +140,6 @@ def build_msa_tab(parent, root=None, report_items=None):
     sub_tabs = ctk.CTkTabview(parent)
     sub_tabs.pack(fill="both", expand=True)
 
-    # added first so it's also the tab shown by default when the MSA tab
-    # opens - merging is the natural first step before running an MSA
     MSA_merge = sub_tabs.add("Merge FASTA")
     MSA_run = sub_tabs.add("Run MSA")
     MSA_results = sub_tabs.add("MSA Results")
@@ -277,7 +264,7 @@ def build_msa_tab(parent, root=None, report_items=None):
         def finish():
             merge_status_label.configure(
                 text=f"Done - {count} sequences written to "
-                     f"{os.path.basename(output_path)}.")
+                f"{os.path.basename(output_path)}.")
             merge_button.configure(state="normal")
 
         parent.after(0, finish)
@@ -369,7 +356,8 @@ def build_msa_tab(parent, root=None, report_items=None):
         top_bar = ctk.CTkFrame(MSA_results, fg_color="transparent")
         top_bar.place(relx=0.5, rely=0.02, anchor="n")
 
-        results_status_label = ctk.CTkLabel(top_bar, text="", text_color="gray")
+        results_status_label = ctk.CTkLabel(
+            top_bar, text="", text_color="gray")
 
         def add_to_report():
             title_source = file_path.get() or score_file_path.get()

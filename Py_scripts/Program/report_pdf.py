@@ -17,8 +17,8 @@ from reportlab.platypus import (
 
 import gap_analysis
 
-# Same status vocabulary as gap_analysis.py, just recolored for a white page
-# instead of the dark Treeview background.
+# Same status vocabulary as gap_analysis.py recolored for a white page
+
 STATUS_COLORS = {
     "no_sequences": colors.HexColor("#b91c1c"),
     "partial": colors.HexColor("#b45309"),
@@ -26,17 +26,17 @@ STATUS_COLORS = {
     "no_data": colors.HexColor("#6b7280"),
 }
 
-# The base-14 "Times-Roman" PDF font only covers WinAnsi/Latin-1 - real
-# synonym data can include Cyrillic, Hungarian, etc., which render as
-# unreadable boxes under it. Registering the actual Windows Times New Roman
-# TrueType font (which has broad Unicode coverage) fixes that; falls back to
-# the base-14 font if those files aren't present (e.g. non-Windows).
+
 _FONT_DIR = r"C:\Windows\Fonts"
 try:
-    pdfmetrics.registerFont(TTFont("TimesNewRoman", os.path.join(_FONT_DIR, "times.ttf")))
-    pdfmetrics.registerFont(TTFont("TimesNewRoman-Bold", os.path.join(_FONT_DIR, "timesbd.ttf")))
-    pdfmetrics.registerFont(TTFont("TimesNewRoman-Italic", os.path.join(_FONT_DIR, "timesi.ttf")))
-    pdfmetrics.registerFont(TTFont("TimesNewRoman-BoldItalic", os.path.join(_FONT_DIR, "timesbi.ttf")))
+    pdfmetrics.registerFont(
+        TTFont("TimesNewRoman", os.path.join(_FONT_DIR, "times.ttf")))
+    pdfmetrics.registerFont(
+        TTFont("TimesNewRoman-Bold", os.path.join(_FONT_DIR, "timesbd.ttf")))
+    pdfmetrics.registerFont(
+        TTFont("TimesNewRoman-Italic", os.path.join(_FONT_DIR, "timesi.ttf")))
+    pdfmetrics.registerFont(
+        TTFont("TimesNewRoman-BoldItalic", os.path.join(_FONT_DIR, "timesbi.ttf")))
     pdfmetrics.registerFontFamily(
         "TimesNewRoman", normal="TimesNewRoman", bold="TimesNewRoman-Bold",
         italic="TimesNewRoman-Italic", boldItalic="TimesNewRoman-BoldItalic"
@@ -152,11 +152,7 @@ def _split_wide_image(image_path, available_width, target_dpi=150, row_gap=6):
 
 
 def _gap_table_col_widths(num_markers, available_width):
-    # Species/Observations/Status get a fixed share of the page; whatever's
-    # left is split evenly across however many marker columns were selected
-    # - then everything is scaled down together if it still doesn't fit
-    # (e.g. a long list of extra markers), so the table never overflows the
-    # page regardless of how many markers the user picked.
+    # Species/Observations/Status get a fixed share of the page
     species_w = available_width * 0.26
     obs_w = available_width * 0.13
     status_w = available_width * 0.17
@@ -175,7 +171,8 @@ def _gap_table_col_widths(num_markers, available_width):
 
 def _build_gap_table(rows, target_markers, available_width):
     header = (
-        [Paragraph("Species", HEADER_STYLE), Paragraph("Observations", HEADER_STYLE)]
+        [Paragraph("Species", HEADER_STYLE), Paragraph(
+            "Observations", HEADER_STYLE)]
         + [Paragraph(m, HEADER_STYLE) for m in target_markers]
         + [Paragraph("Status", HEADER_STYLE)]
     )
@@ -204,8 +201,7 @@ def _build_gap_table(rows, target_markers, available_width):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
     ]
-    # thin colored accent bar on the left edge of each data row, matching
-    # its status - lets the table be scanned by color without reading text
+    # thin colored accent bar on the left edge of each data row, matching its status
     for i, row in enumerate(rows, start=1):
         color = STATUS_COLORS.get(row["status"], colors.black)
         style_commands.append(("LINEBEFORE", (0, i), (0, i), 3, color))
@@ -299,10 +295,7 @@ def build_report_pdf(
         gap_analysis.build_status_chart_png(rows) - a user-toggleable
         summary figure placed right after the gap analysis table
     """
-    # A handful of marker columns fit fine on a portrait page; more than
-    # that needs the extra width landscape gives, rather than squeezing
-    # (and _gap_table_col_widths's final scale-down is still there as a
-    # backstop for whatever doesn't fit even in landscape).
+
     pagesize = landscape(A4) if len(target_markers) > 4 else A4
 
     doc = SimpleDocTemplate(
@@ -314,7 +307,7 @@ def build_report_pdf(
     story = [
         Paragraph("Gap analysis report", TITLE_STYLE),
         Paragraph(
-            f"NCBI / BOLD Pipeline - generated "
+            f"Flora Fetch - generated "
             f"{datetime.now().strftime('%d %B %Y')}",
             META_STYLE
         ),
@@ -352,7 +345,8 @@ def build_report_pdf(
     ))
     story.append(_build_gap_table(rows, target_markers, doc.width))
 
-    coverage_stats = gap_analysis.build_marker_coverage_stats(rows, target_markers)
+    coverage_stats = gap_analysis.build_marker_coverage_stats(
+        rows, target_markers)
     story.append(Paragraph(
         "Table 2. Marker coverage across surveyed species (of those "
         "successfully checked against the observation site).",
@@ -374,11 +368,12 @@ def build_report_pdf(
 
     for item in report_items:
         if item["type"] == "retrieval_chart":
-            story.append(Paragraph(f"{section_num}. Retrieval rate", SECTION_STYLE))
+            story.append(
+                Paragraph(f"{section_num}. Retrieval rate", SECTION_STYLE))
             story.append(_scaled_image(
                 io.BytesIO(item["image_bytes"]), doc.width))
             story.append(Paragraph(f"Figure {figure_num}. {item['title']}.",
-                                    CAPTION_STYLE))
+                                   CAPTION_STYLE))
             figure_num += 1
             section_num += 1
 
@@ -387,7 +382,7 @@ def build_report_pdf(
                 f"{section_num}. Multiple sequence alignment", SECTION_STYLE))
             story.extend(_split_wide_image(item["image_path"], doc.width))
             story.append(Paragraph(f"Figure {figure_num}. {item['title']}.",
-                                    CAPTION_STYLE))
+                                   CAPTION_STYLE))
             figure_num += 1
 
             if item.get("scores"):
@@ -406,7 +401,8 @@ def build_report_pdf(
                 f"{section_num}. Barcode gap - {a['species']}", SECTION_STYLE))
 
             verdict_label = gap_analysis.BARCODE_GAP_VERDICTS[a["verdict"]]
-            method = a.get("distance_method", gap_analysis.DEFAULT_DISTANCE_METHOD)
+            method = a.get("distance_method",
+                           gap_analysis.DEFAULT_DISTANCE_METHOD)
             if a["verdict"] == "insufficient_data":
                 summary = f"Verdict: {verdict_label} - {a['reason']}"
             else:
@@ -419,7 +415,8 @@ def build_report_pdf(
             story.append(Paragraph(summary, ABSTRACT_STYLE))
 
             if item.get("image_bytes"):
-                story.append(_scaled_image(io.BytesIO(item["image_bytes"]), doc.width))
+                story.append(_scaled_image(
+                    io.BytesIO(item["image_bytes"]), doc.width))
                 story.append(Paragraph(
                     f"Figure {figure_num}. {item['title']} - neighbor-joining "
                     "guide tree (p-distance, no bootstrap support - not a "

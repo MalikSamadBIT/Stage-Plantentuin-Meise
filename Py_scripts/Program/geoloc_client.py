@@ -11,9 +11,7 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-# Both sites run the same observation.org platform: species search + the
-# grid-map JSON endpoint work identically, just against a different base URL
-# and (Belgium being much smaller) a finer grid size.
+# Both sites run the same observation.org platform
 SITES = {
     "Belgium (waarnemingen.be)": {
         "base_url": "https://waarnemingen.be",
@@ -27,9 +25,7 @@ SITES = {
 
 
 def lookup_species_id(name, base_url):
-    # The /search/ page isn't behind the Anubis anti-bot check (unlike the
-    # /maps/ endpoint), so a plain urlopen works here - same approach as
-    # synonym_client.py uses to resolve a species name to its numeric ID.
+    # The /search/ page isn't behind the Anubis anti-bot check (unlike the/maps/endpoint), so a plain urlopen works here
     query_url = f"{base_url}/search/?q=" + quote_plus(name.strip())
     with urlopen(query_url) as page:
         html = page.read().decode("utf-8")
@@ -47,11 +43,9 @@ def _cell_centroid(coordinates):
     return sum(lats) / len(lats), sum(lons) / len(lons)
 
 
-# The site's "interval" parameter isn't an arbitrary number of seconds - it
 # only accepts these preset lookback windows (day/week/month/6mo/1y/5y/10y),
-# same as the dropdown on the map page itself. Anything else is rejected
-# with a validation error and an empty (but still 200 OK, valid-JSON) response.
-INTERVAL_CHOICES = [86400, 604800, 2592000, 15552000, 31536000, 157680000, 315360000]
+INTERVAL_CHOICES = [86400, 604800, 2592000,
+                    15552000, 31536000, 157680000, 315360000]
 
 
 def _interval_for(start_date, end_date):
@@ -59,13 +53,12 @@ def _interval_for(start_date, end_date):
     for choice in INTERVAL_CHOICES:
         if choice >= requested:
             return choice
-    return INTERVAL_CHOICES[-1]  # cap at the largest available window (10 years)
+    # cap at the largest available window (10 years)
+    return INTERVAL_CHOICES[-1]
 
 
 def _new_browser_page(p):
-    # Anubis's anti-bot check flags a default headless launch outright
-    # (navigator.webdriver reveals it as automated) - masking that flag lets
-    # its JS challenge pass normally, same as any real browser.
+    # Anubis's anti-bot check flags a default headless launch outright (navigator.webdriver reveals it as automated) - masking that flag lets its JS challenge pass normally, same as any real browser.
     browser = p.chromium.launch(
         headless=True, args=["--disable-blink-features=AutomationControlled"]
     )
@@ -85,10 +78,7 @@ def _fetch_grid_features(page, base_url, species_id, start_date, end_date, map_t
     )
     json_url = map_url + "&json="
 
-    # Visit the normal map page first so Anubis's JS challenge runs and sets
-    # the auth cookie; then the JSON URL request reuses that cookie. Reused
-    # across species in fetch_observation_counts_batch, so this cookie only
-    # needs to be earned once per browser session, not once per species.
+    # Visit the normal map page first so Anubis's JS challenge runs and sets the auth cookie
     page.goto(map_url, wait_until="networkidle")
     response = page.goto(json_url, wait_until="networkidle")
     text = response.text()
@@ -100,7 +90,8 @@ def _fetch_grid_features(page, base_url, species_id, start_date, end_date, map_t
             f"Non-JSON response from {base_url} (first 500 chars):\n{text[:500]}")
 
     if "errors" in data:
-        raise RuntimeError(f"{base_url} rejected the request: {data['errors']}")
+        raise RuntimeError(
+            f"{base_url} rejected the request: {data['errors']}")
 
     return data.get("features", [])
 

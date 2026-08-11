@@ -193,10 +193,6 @@ def p_distance(seq1, seq2, aligner=None):
     return n_diff / n_sites, n_sites
 
 
-# purine<->purine (A<->G) or pyrimidine<->pyrimidine (C<->T) substitutions -
-# the two kinds of change the Kimura 2-parameter formula treats separately
-# from everything else (transversions), since they occur at different rates
-# in real sequence evolution.
 _TRANSITIONS = frozenset({("A", "G"), ("G", "A"), ("C", "T"), ("T", "C")})
 
 
@@ -248,10 +244,6 @@ def k2p_distance(seq1, seq2, aligner=None):
     return distance, n_sites
 
 
-# Distance methods selectable from the barcode-gap drill-down (see
-# gap_tab.py) - both take (seq1, seq2, aligner) and return (distance,
-# n_sites), so they're interchangeable anywhere a distance_method is
-# threaded through.
 DISTANCE_METHODS = {
     "p-distance": p_distance,
     "K2P": k2p_distance,
@@ -260,7 +252,7 @@ DEFAULT_DISTANCE_METHOD = "p-distance"
 
 
 def compute_barcode_gap(conn, species_name, marker,
-                         distance_method=DEFAULT_DISTANCE_METHOD, aligner=None):
+                        distance_method=DEFAULT_DISTANCE_METHOD, aligner=None):
     """
     Assesses whether species_name has a barcode gap at the given marker:
     the max pairwise distance among its own sequences (intraspecific)
@@ -341,11 +333,7 @@ def compute_barcode_gap(conn, species_name, marker,
 
 
 def _unique_tip_label(species, accession, seen_labels):
-    # one tip per specimen, not per species - collapsing to species would
-    # hide exactly the thing a guide tree is for (a specimen sitting on
-    # the wrong branch). accession disambiguates same-species specimens;
-    # falls back to a counter for rows without one (e.g. hand-inserted
-    # test data).
+    # one tip per specimen, not per species
     base = f"{species} ({accession})" if accession else species
     label = base
     n = 2
@@ -357,12 +345,7 @@ def _unique_tip_label(species, accession, seen_labels):
 
 
 def _render_guide_tree_png(tree, genus, marker, distance_method):
-    # Uses the Figure/FigureCanvasAgg object API directly rather than
-    # pyplot's plt.figure()/plt.close() - this can run on a background
-    # thread (see gap_tab.py's barcode-gap drill-down window), and pyplot's
-    # global figure-manager state isn't thread-safe, especially once an
-    # interactive backend is in play elsewhere in the app (see
-    # retrieval_rate_tab.py's embedded FigureCanvasTkAgg chart).
+    # Uses the Figure/FigureCanvasAgg object API directly rather than pyplot's plt.figure
     n_tips = tree.count_terminals()
     fig = Figure(figsize=(8, max(3, 0.3 * n_tips)), dpi=150)
     FigureCanvasAgg(fig)
@@ -382,7 +365,7 @@ def _render_guide_tree_png(tree, genus, marker, distance_method):
 
 
 def build_genus_guide_tree(conn, genus, marker,
-                            distance_method=DEFAULT_DISTANCE_METHOD, aligner=None):
+                           distance_method=DEFAULT_DISTANCE_METHOD, aligner=None):
     """
     Builds a neighbor-joining guide tree (Bio.Phylo, NJ) from every
     sequence on file for the given genus and marker - one tip per
@@ -428,11 +411,8 @@ def build_genus_guide_tree(conn, genus, marker,
     matrix = [[0.0] * (i + 1) for i in range(n)]
     for i in range(1, n):
         for j in range(i):
-            distance, _n_sites = distance_fn(sequences[i], sequences[j], aligner)
-            # no comparable sites between this pair (or, for K2P, too
-            # diverged for the correction to be defined) - treat as
-            # maximally different rather than crashing the whole tree over
-            # one bad pair
+            distance, _n_sites = distance_fn(
+                sequences[i], sequences[j], aligner)
             matrix[i][j] = distance if distance is not None else 1.0
 
     dm = DistanceMatrix(labels, matrix)

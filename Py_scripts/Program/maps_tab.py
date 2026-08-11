@@ -66,10 +66,8 @@ def build_maps_tab(parent, root=None, db_config=None):
     map_widget.set_position(52.1326, 5.2913)
     map_widget.set_zoom(7)
 
-    # fetch_grid_data() drives a headless browser and can take 10-20s (page
-    # load + anti-bot check), so it runs on a background thread. Only the
-    # main thread touches Tk/map widgets - the thread just writes into
-    # `result`, and the main thread polls it via parent.after.
+    # fetch_grid_data() drives a headless browser and can take 10-20s (page load + anti-bot check)  runs on a background thread
+
     result = {}
 
     def check_database(species_name):

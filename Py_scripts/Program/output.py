@@ -54,7 +54,8 @@ def write_no_matches_table(path, species_list, markers, matched_set):
     if not rows:
         return
 
-    species_width = max([len("Species")] + [len(species) for species, _ in rows])
+    species_width = max([len("Species")] + [len(species)
+                        for species, _ in rows])
     col_widths = [max(len(marker), 3) for marker in markers]
 
     header = "Species".ljust(species_width) + " | " + " | ".join(
@@ -135,10 +136,7 @@ NON_MARKER_COUNT_COLUMNS = {"NCBI_count", "BOLD_count", "Total_count"}
 
 
 def merge_summary_dataframe(baseline_df, results):
-    # Resuming only re-searches (species, marker) pairs that had zero
-    # matches in the previous run (see parse_no_matches_table), so every
-    # count `results` contributes here is additive against the baseline -
-    # no existing non-zero cell is ever touched or overwritten.
+    # Resuming only re-searches (species, marker) pairs that had zero matches in the previous run
     df = baseline_df.set_index("Species")
 
     marker_deltas = defaultdict(lambda: defaultdict(int))
@@ -173,9 +171,7 @@ def merge_summary_dataframe(baseline_df, results):
 
 
 def merge_matched_set(baseline_df, results):
-    # Reconstructs the full (species, marker) matched set - every pair
-    # with a non-zero count in the previous run's summary, unioned with
-    # whatever this resumed run just found.
+    # Reconstructs the full (species, marker) matched set
     marker_columns = [
         c for c in baseline_df.columns
         if c.endswith("_count") and c not in NON_MARKER_COUNT_COLUMNS
@@ -202,7 +198,8 @@ def write_zero_species_csv(path, retrieval_data):
     # species that returned zero sequences across every marker/source -
     # a plain single-column list, easy to paste back into the species
     # textbox for a follow-up retry run
-    zero_df = retrieval_data.loc[retrieval_data["Total_count"] == 0, ["Species"]]
+    zero_df = retrieval_data.loc[retrieval_data["Total_count"] == 0, [
+        "Species"]]
     zero_df.to_csv(path, index=False)
 
 

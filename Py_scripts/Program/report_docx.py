@@ -262,7 +262,7 @@ def build_report_docx(
     )
     _formatted_paragraph(
         doc,
-        f"NCBI / BOLD Pipeline - generated {datetime.now().strftime('%d %B %Y')}",
+        f"Flora Fetch - generated {datetime.now().strftime('%d %B %Y')}",
         size=10, italic=True, alignment=WD_ALIGN_PARAGRAPH.CENTER,
         color=MUTED_COLOR, space_after=2
     )

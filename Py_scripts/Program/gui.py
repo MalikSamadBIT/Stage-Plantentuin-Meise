@@ -27,30 +27,21 @@ from blast_tab import build_blast_tab
 from synonym_tab import build_synonym_tab
 from maps_tab import build_maps_tab
 from gap_tab import build_gap_tab
+from home_tab import build_home_tab
 import database
 
 df = None
 retrieval_data = None
 resume_jobs = None
 
-# how often a Fetch FASTA run re-saves its progress to disk/DB while it's
-# still running - see the CHECKPOINTING block in run_search(). Module-level
-# so a test can shrink it instead of waiting out a real 30s interval.
+
 CHECKPOINT_INTERVAL_SECONDS = 30
 
-# set by the Stop button, checked between jobs in run_search() - a
-# cooperative cancel rather than an abrupt thread-kill, since Python can't
-# safely force-terminate a thread mid network-call. Module-level (not
-# recreated per run) so the Stop button's command doesn't need to reach
-# into a specific run's local state.
+
 cancel_event = threading.Event()
 
 
 def sleep_or_cancel(total_seconds):
-    # a plain time.sleep(batch_pause) can't be interrupted - BOLD's
-    # inter-batch pause defaults to 30s and can be set much longer, so
-    # cancelling a run shouldn't have to wait one out. Sleeps in short
-    # increments instead, returning early the moment cancel_event is set.
     step = 0.5
     elapsed = 0.0
     while elapsed < total_seconds and not cancel_event.is_set():
@@ -69,7 +60,7 @@ ctk.set_default_color_theme("dark-blue")
 
 app = ctk.CTk()
 app.geometry("1250x820")
-app.title("NCBI / BOLD Pipeline")
+app.title("Flora Fetch")
 
 # shared across the whole program (Fetch FASTA saving, Database tab, Synonym search, Maps) backend (SQLite file or MySQL server) is chosen once in the Settings tab
 db_config = database.DatabaseConfig()
@@ -108,6 +99,7 @@ Terminal = tabs.add("Terminal")
 settings_scroll = ctk.CTkScrollableFrame(Settings)
 settings_scroll.pack(fill="both", expand=True, padx=10, pady=10)
 
+build_home_tab(Home, app, tabview=tabs)
 build_retrieval_rate_tab(
     Retrieval_Rate, lambda: retrieval_data, app, report_items=report_items)
 build_msa_tab(MSA, app, report_items=report_items)
@@ -261,8 +253,6 @@ def compute_species_list():
     ]
 
     # repairs names that were already mojibaked before reaching this app
-    # (see fix_mojibake) - independent of read_csv_robust, which only
-    # covers this app's own read of the file
     species_list = [fix_mojibake(s) for s in species_list]
 
     if strip_chars_var.get():
@@ -415,11 +405,7 @@ bad_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
 ctk.CTkLabel(markers_frame, text="Markers", font=(
     "Arial", 14, "bold")).pack(anchor="w")
 
-# _saved_config only has "selected_markers" once a previous session has
-# actually saved one - None (vs. an empty list) distinguishes "never saved
-# before" (fall back to the original all-unchecked default) from "saved
-# with nothing checked" (respect that, even though it looks the same as
-# never having run this app before)
+
 _saved_markers = _saved_config.get("selected_markers")
 
 marker_vars = {}
@@ -538,11 +524,7 @@ marker_checkbox = ctk.CTkCheckBox(
 )
 marker_checkbox.pack(anchor="w", pady=2)
 
-# a loaded separate_species=False must still disable this checkbox (and
-# force separate_marker off), the same invariant on_species_toggle
-# enforces live - but that also calls update_preview(), which needs
-# preview_label, not created until later in this setup, so just the
-# state-sync part is duplicated here rather than calling it directly
+
 if not separate_species_var.get():
     marker_checkbox.configure(state="disabled")
     separate_marker_var.set(False)
@@ -833,8 +815,6 @@ def apply_country_groups():
 
 
 # initialize common.py's matching state from the restored/default entries
-# above - apply_settings() (preset loading) re-applies this itself when it
-# changes the entries; run_search() also re-applies it fresh on every run
 apply_country_groups()
 
 
@@ -1005,11 +985,7 @@ DEFAULT_PRESET_NAME = "Default"
 
 _saved_presets = load_presets()
 
-# apply_settings({}) already falls back to every widget's own factory
-# default (every settings.get(key, default) call in it carries that same
-# default) - so the built-in "Default" preset is just the empty dict,
-# seeded once so it's always in the list even before the user saves
-# anything of their own.
+
 if DEFAULT_PRESET_NAME not in _saved_presets:
     _saved_presets[DEFAULT_PRESET_NAME] = {}
     save_presets(_saved_presets)
@@ -1126,10 +1102,6 @@ def slider(label, config_key, default):
     s.configure(command=update)
     s.pack(fill="x")
 
-    # apply_settings() (used by preset loading) needs to update this
-    # label too when it moves the slider programmatically - s.set()
-    # doesn't fire the command callback above, so nothing else keeps it
-    # in sync
     s.value_label = value
 
     return s
@@ -1326,19 +1298,6 @@ def run_search():
     blocked = False
 
     # CHECKPOINTING-----------------------------------------------------
-    # Without this, everything fetched during a run only ever hits disk/DB
-    # once, at the very end of run_search() - so closing the app mid-run
-    # (on_closing() force-kills with os._exit(0) specifically because
-    # in-flight NCBI/BOLD calls would otherwise hang shutdown) or any crash
-    # loses every sequence fetched so far, no matter how far the run got.
-    # write_results/write_no_matches_table/summary.to_csv all overwrite
-    # their output files each call, so re-running them against whatever
-    # `results` holds so far is always safe to repeat, not just additive -
-    # that makes "periodically re-run the final-write logic against partial
-    # results" a correct, low-risk checkpoint. The output is exactly what a
-    # completed run "up to this point" would have produced, so a killed run
-    # is immediately resumable via the existing "Load no_matches.txt to
-    # resume" flow with no new resume logic needed.
 
     checkpoint_conn = None
     checkpoint_run_id = None
@@ -1406,20 +1365,12 @@ def run_search():
         return current_data
 
     def maybe_checkpoint():
-        # time-based, not job-count-based: NCBI (fast, concurrent) and BOLD
-        # (slow, rate-limited/batched) complete jobs at very different
-        # rates, so a fixed job count would checkpoint far too often on one
-        # source and far too rarely on the other
+        # time-based
         if time.time() - last_checkpoint_time >= CHECKPOINT_INTERVAL_SECONDS:
             try:
                 checkpoint()
                 log(f"Checkpoint saved ({len(results)} sequence(s) so far).")
             except Exception as e:
-                # a transient write failure (e.g. disk unavailable) during a
-                # checkpoint shouldn't abort the whole run - it just means
-                # this particular checkpoint didn't land, and results
-                # already fetched stay in memory for the next attempt or
-                # the final write
                 log(f"Checkpoint failed (will retry next interval): {e}")
 
     def report_progress(completed, total, start_time, label=""):
@@ -1466,10 +1417,7 @@ def run_search():
 
             for future in as_completed(future_to_job):
                 if cancel_event.is_set():
-                    # can't recall calls already in flight, but this stops
-                    # any not-yet-started ones and returns as soon as
-                    # whatever's currently running finishes, rather than
-                    # waiting on the full remaining job list
+
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
 
@@ -1709,10 +1657,6 @@ def run_search():
                 for marker in jobs_by_species[species]
             ]
 
-            # per-batch, not accumulated across the whole run - the merge
-            # below happens once per batch specifically so a checkpoint
-            # partway through a long run has something real to save (see
-            # the merge step right after the BOLD portion, below)
             ncbi_results = {}
             bold_results = {}
 
@@ -1785,10 +1729,7 @@ def run_search():
                 if blocked or cancel_event.is_set():
                     break
 
-            # merge: pool both sources for this batch - done per-batch
-            # (rather than once for the whole run) specifically so results
-            # land in `results`/db_pending, and therefore in a checkpoint,
-            # well before the entire run finishes
+            # merge: pool both sources for this batch
             batch_seen_jobs = set(ncbi_results.keys()) | set(
                 bold_results.keys())
 
@@ -1813,10 +1754,7 @@ def run_search():
                 log(f"Pausing {batch_pause}s before next batch...")
                 sleep_or_cancel(batch_pause)
 
-    # final checkpoint - same write logic that ran periodically during the
-    # run (see maybe_checkpoint above), just guaranteed to run once more
-    # now so the last partial interval isn't left unsaved
-    # resuming only re-searches pairs that previously had zero matches, merge into the previous run's summary.csv
+    # final checkpoint - same write logic that ran periodically during the run
     try:
         retrieval_data = checkpoint()
     except Exception as e:
@@ -2080,11 +2018,7 @@ def on_closing():
         "db_mysql_user": db_config.mysql_user,
         "db_mysql_database": db_config.mysql_database,
 
-        # deliberately NOT saved: species list/CSV path, output directory,
-        # resume state, and the NCBI/BOLD source choice + retry checkboxes
-        # - these are per-run choices, not standing settings, and
-        # auto-restoring them (especially output_dir or an old species
-        # list) on every launch would be surprising rather than convenient
+
         **collect_current_settings(),
     })
 
