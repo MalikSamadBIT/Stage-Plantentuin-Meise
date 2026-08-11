@@ -9,7 +9,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from common import (
     RateLimiter, load_config, save_config, strip_characters,
-    read_csv_robust, fix_mojibake, load_presets, save_presets
+    read_csv_robust, fix_mojibake, load_presets, save_presets,
+    set_country_groups, DEFAULT_TARGET_COUNTRY_NAMES,
+    DEFAULT_NEIGHBOR_COUNTRY_NAMES
 )
 from ncbi_client import search_and_fetch_ncbi, configure_entrez
 from bold_client import BoldBlockedError, search_and_fetch_bold
@@ -793,6 +795,49 @@ refresh_db_status()
 db_config.trace_add("write", lambda *_: refresh_db_status())
 
 
+ctk.CTkLabel(settings_scroll, text="🌍 COUNTRY SCORING", font=(
+    "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
+ctk.CTkLabel(
+    settings_scroll,
+    text="Which locations count as the target country vs. a neighboring "
+         "country for the \"Target country boost\"/\"Neighbor countries "
+         "boost\" sliders on the right. Each is a comma separated list of "
+         "names/spellings to match against a sequence's location (e.g. "
+         "the same country in multiple languages) - anything elsewhere in "
+         "Europe gets the \"Europe fallback\" score instead.",
+    justify="left", text_color="gray", wraplength=700, font=("Arial", 11)
+).pack(anchor="w", pady=(0, 5))
+
+ctk.CTkLabel(settings_scroll, text="Target country name(s)").pack(anchor="w")
+target_country_entry = ctk.CTkEntry(
+    settings_scroll, placeholder_text="e.g. Belgium, België, Belgique")
+target_country_entry.insert(0, _saved_config.get(
+    "target_country_names", ", ".join(DEFAULT_TARGET_COUNTRY_NAMES)))
+target_country_entry.pack(fill="x", pady=(0, 5))
+
+ctk.CTkLabel(settings_scroll, text="Neighboring country name(s)").pack(
+    anchor="w")
+neighbor_country_entry = ctk.CTkEntry(
+    settings_scroll,
+    placeholder_text="e.g. Netherlands, Nederland, Germany, Deutschland")
+neighbor_country_entry.insert(0, _saved_config.get(
+    "neighbor_country_names", ", ".join(DEFAULT_NEIGHBOR_COUNTRY_NAMES)))
+neighbor_country_entry.pack(fill="x", pady=(0, 10))
+
+
+def apply_country_groups():
+    set_country_groups(
+        target_country_entry.get().split(","),
+        neighbor_country_entry.get().split(",")
+    )
+
+
+# initialize common.py's matching state from the restored/default entries
+# above - apply_settings() (preset loading) re-applies this itself when it
+# changes the entries; run_search() also re-applies it fresh on every run
+apply_country_groups()
+
+
 ctk.CTkLabel(settings_scroll, text="⚙ SETTINGS", font=(
     "Arial", 16, "bold")).pack(anchor="w", pady=(10, 5))
 
@@ -1090,8 +1135,8 @@ def slider(label, config_key, default):
     return s
 
 
-belgium_s = slider("Belgium boost", "score_belgium", 40)
-neighbor_s = slider("Neighbor boost", "score_neighbor", 20)
+belgium_s = slider("Target country boost", "score_belgium", 40)
+neighbor_s = slider("Neighbor countries boost", "score_neighbor", 20)
 europe_s = slider("Europe fallback", "score_europe", 5)
 length_s = slider("Length bonus", "score_length_bonus", 10)
 bad_penalty_s = slider("Bad penalty", "score_bad_penalty", 100)
@@ -1212,8 +1257,10 @@ def run_search():
     except ValueError:
         length_partial_max = 2000
 
+    apply_country_groups()
+
     w = {
-        "belgium": belgium_s.get(),
+        "target": belgium_s.get(),
         "neighbor": neighbor_s.get(),
         "europe": europe_s.get(),
         "unknown": 0,
@@ -1919,6 +1966,10 @@ def collect_current_settings():
         "score_length_bonus": length_s.get(),
         "score_bad_penalty": bad_penalty_s.get(),
 
+        # which locations count as target/neighbor for the sliders above
+        "target_country_names": target_country_entry.get(),
+        "neighbor_country_names": neighbor_country_entry.get(),
+
         # default marker/bad-word selections (Fetch FASTA tab)
         "selected_markers": [m for m, v in marker_vars.items() if v.get()],
         "extra_markers": extra_markers.get(),
@@ -1978,6 +2029,12 @@ def apply_settings(settings):
     set_slider(europe_s, "score_europe", 5)
     set_slider(length_s, "score_length_bonus", 10)
     set_slider(bad_penalty_s, "score_bad_penalty", 100)
+
+    set_entry(target_country_entry, "target_country_names",
+              ", ".join(DEFAULT_TARGET_COUNTRY_NAMES))
+    set_entry(neighbor_country_entry, "neighbor_country_names",
+              ", ".join(DEFAULT_NEIGHBOR_COUNTRY_NAMES))
+    apply_country_groups()
 
     saved_markers = settings.get("selected_markers")
     for m, v in marker_vars.items():

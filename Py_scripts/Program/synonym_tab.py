@@ -17,7 +17,7 @@ from synonym_client import search_synonyms
 # Not exposed on this tab (kept simple) - same defaults as the Fetch FASTA
 # tab's sliders/checkboxes/length bands.
 DEFAULT_WEIGHTS = {
-    "belgium": 40, "neighbor": 20, "europe": 5, "unknown": 0,
+    "target": 40, "neighbor": 20, "europe": 5, "unknown": 0,
     "length_bonus": 10, "bad_title_penalty": 100,
 }
 DEFAULT_BAD_WORDS = [
