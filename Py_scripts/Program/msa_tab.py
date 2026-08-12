@@ -30,12 +30,24 @@ def merge_fasta_files(input_paths, output_path):
     return len(records)
 
 
-def run_msa(input_file, output_dir, show_grid, show_count, show_consensus):
+def run_msa(input_file, output_dir, show_grid, show_count, show_consensus,
+            revcomp_ids=None):
+    muscle_input = input_file
+
+    if revcomp_ids:
+        muscle_input = os.path.join(
+            output_dir, os.path.basename(input_file) + "_revcomp.fasta")
+        records = list(SeqIO.parse(input_file, "fasta"))
+        for record in records:
+            if record.id in revcomp_ids:
+                record.seq = record.seq.reverse_complement()
+        SeqIO.write(records, muscle_input, "fasta")
+
     aligned_file = os.path.join(
         output_dir, os.path.basename(input_file) + "_aligned.fasta")
 
     subprocess.run(
-        [MUSCLE_EXE, "-align", input_file, "-output", aligned_file],
+        [MUSCLE_EXE, "-align", muscle_input, "-output", aligned_file],
         check=True
     )
 
@@ -157,6 +169,7 @@ def build_msa_tab(parent, root=None, report_items=None):
             parent=root, filetypes=[("FASTA", "*.fasta")])
         if path:
             file_path.set(path)
+            show_seq_ids(path)
 
     def choose_output():
         path = filedialog.askdirectory(parent=root)
@@ -302,6 +315,43 @@ def build_msa_tab(parent, root=None, report_items=None):
                   command=load).pack(fill="x", pady=5)
     ctk.CTkLabel(MSA_run, textvariable=file_path).pack(
         anchor="w", pady=(0, 10))
+
+    ctk.CTkLabel(
+        MSA_run,
+        text="Sequence IDs in file (check to use reverse complement)",
+        font=("Arial", 14, "bold")
+    ).pack(anchor="w", pady=(0, 2))
+
+    seq_ids_frame = ctk.CTkScrollableFrame(MSA_run, height=100)
+    seq_ids_frame.pack(fill="x", pady=(0, 10))
+
+    revcomp_vars = {}  # sequence id -> BooleanVar, rebuilt on each file load
+
+    def show_seq_ids(path):
+        for widget in seq_ids_frame.winfo_children():
+            widget.destroy()
+        revcomp_vars.clear()
+
+        try:
+            records = list(SeqIO.parse(path, "fasta"))
+        except Exception as e:
+            ctk.CTkLabel(
+                seq_ids_frame, text=f"Could not read sequence IDs: {e}"
+            ).pack(anchor="w")
+            return
+
+        if not records:
+            ctk.CTkLabel(
+                seq_ids_frame, text="No sequences found in file."
+            ).pack(anchor="w")
+            return
+
+        for record in records:
+            var = ctk.BooleanVar(value=False)
+            revcomp_vars[record.id] = var
+            ctk.CTkCheckBox(
+                seq_ids_frame, text=record.id, variable=var
+            ).pack(anchor="w", pady=1)
 
     ctk.CTkButton(MSA_run, text="Select Output Folder",
                   command=choose_output).pack(fill="x", pady=5)
@@ -477,10 +527,10 @@ def build_msa_tab(parent, root=None, report_items=None):
     # RUN (background thread, so a slow MUSCLE alignment doesn't freeze
     # the rest of the app while it runs)------------------------------------
 
-    def run_worker(input_file, out_dir, grid, count, consensus):
+    def run_worker(input_file, out_dir, grid, count, consensus, revcomp_ids):
         try:
             report_path, aligned_file = run_msa(
-                input_file, out_dir, grid, count, consensus)
+                input_file, out_dir, grid, count, consensus, revcomp_ids)
         except subprocess.CalledProcessError as e:
             parent.after(0, lambda: status_label.configure(
                 text=f"MSA failed: {e}"))
@@ -510,10 +560,14 @@ def build_msa_tab(parent, root=None, report_items=None):
         status_label.configure(text="Running MSA...")
         run_button.configure(state="disabled")
 
+        revcomp_ids = {
+            seq_id for seq_id, var in revcomp_vars.items() if var.get()}
+
         thread = threading.Thread(
             target=run_worker,
             args=(file_path.get(), output_dir.get(),
-                  grid_var.get(), count_var.get(), consensus_var.get()),
+                  grid_var.get(), count_var.get(), consensus_var.get(),
+                  revcomp_ids),
             daemon=True
         )
         thread.start()
