@@ -81,6 +81,57 @@ GETTING STARTED
 FEATURES IN DETAIL
 -------------------
 
+Settings
+~~~~~~~~
+
+The central configuration hub. Nothing here runs a search itself - it
+holds the credentials, defaults, and scoring rules that Fetch FASTA,
+Synonym search, Database, and Maps all read from.
+
+    - NCBI credentials: your email (required for any NCBI search) and
+      an optional API key that raises the rate limit from 3 to 10
+      requests/second.
+
+    - Database: choose SQLite ("Select/Create Database File" - a
+      single local file) or MySQL (host/port/user/password/database
+      name, validated with a "Connect" button before it becomes
+      active). The MySQL password is never saved to disk - you
+      re-enter it each session. Whichever backend is active here is
+      shared by every other tab that touches the database.
+
+    - Country scoring: comma-separated lists of target-country and
+      neighbor-country names/spellings (e.g. the same country in
+      multiple languages). These decide which candidate sequences get
+      Fetch FASTA's "Target country boost" vs. "Neighbor countries
+      boost" - anything else in Europe gets the "Europe fallback"
+      score instead.
+
+    - Strip characters: optionally strip specific characters (e.g. the
+      "x" in botanical hybrid names) from species names wherever they
+      appear, before searching.
+
+    - Request pacing / search depth: minimum interval between
+      requests, concurrent workers (NCBI only), how many candidates to
+      score per search, and how many top-scoring results to keep per
+      marker; plus species-per-batch and pause-between-batches for
+      BOLD searches.
+
+    - Length bands: a default "full score" and "partial score" length
+      range in bp - sequences inside the full range get the complete
+      length bonus, tapering off across the partial range, nothing
+      outside it. Per-marker overrides can be typed in, one per line:
+      "MARKER full_min-full_max partial_min-partial_max".
+
+    - Settings presets: save the current scoring/markers/filters/
+      output settings (not NCBI credentials or the database
+      connection) under a name, then load or delete it later.
+      "Default" is a built-in preset that can't be deleted, used to
+      reset everything back to factory values.
+
+Closing the app automatically saves your NCBI email/API key, database
+backend choice (excluding the MySQL password), and every setting above.
+
+
 Fetch FASTA
 ~~~~~~~~~~~
 
@@ -292,6 +343,81 @@ MSA Score:
     - "Compute Scores" runs in the background and shows the results;
       these are what get attached if you then use "Add to Report" back
       on the Results tab.
+
+
+Maps
+~~~~
+
+Plots species occurrence records from an observation platform (e.g.
+waarnemingen.be) on a map, and cross-checks the species against what's
+already in your database.
+
+How to use it:
+
+1. Pick the map/data source, type a species name, and choose a start
+   and end date.
+
+2. Click "Load". It looks up the species' ID on that site, fetches
+   occurrence data on a grid, and - if a database is configured in
+   Settings - pulls how many sequences you already have per marker for
+   that species. Both run in the background, since the site lookup can
+   take 10-20 seconds (page load plus anti-bot checks).
+
+3. Once loaded, the map centers and zooms to fit the returned grid
+   cells, each marked with its observation count. A status line shows
+   how many cells were loaded and, separately, what's already on file
+   in the database per marker.
+
+Without a database configured in Settings, you still get the map - just
+not the "already on file" comparison.
+
+
+Gap Report
+~~~~~~~~~~
+
+Finds species/marker combinations with missing or thin sequence
+coverage by cross-checking your database against real occurrence data,
+then assembles a PDF/Word report combining that with snapshots pushed
+in from other tabs. Split into two sub-tabs.
+
+Gap Analysis:
+
+    - Provide species the same way as the other tabs: a CSV with a
+      "Name" column, a no_matches.txt file, typed names, and/or the
+      shared species list.
+
+    - Choose options: the observation site and date range, which
+      markers to check (checkboxes plus an extra-markers field), and
+      whether to force-refresh observation counts instead of reusing
+      ones already fetched this session.
+
+    - "Run Gap Analysis" checks, per species: how many real-world
+      observations exist in that date range (resolving through known
+      synonyms in the database if available), and how many sequences
+      exist per target marker in your database. Each row is
+      color-labelled by status - no sequences, partial, complete, or
+      no data (when no database is configured).
+
+    - From the results table: "Export to CSV", "Send missing species
+      to Fetch FASTA" (pushes every no-sequences/partial species into
+      the shared species list and switches over to Fetch FASTA), or
+      select a row and open "Barcode Gap Analysis..." - a drill-down
+      window that builds a guide tree for that species' genus (per
+      marker, with a choice of distance metric) and reports whether
+      intraspecific vs. interspecific distances show a clean "barcode
+      gap" for that species. Its tree image can be added to the report
+      too.
+
+Report Contents:
+
+    - The gap analysis table is always the report's first section.
+    - Optionally include a bar chart summarizing gap-status counts
+      (no sequences/partial/complete/no data).
+    - Any "Add to Report" snapshot pushed from Retrieval Rate, MSA,
+      Synonym search, or a barcode gap drill-down is listed here, each
+      removable.
+    - "Export to PDF..." / "Export to Word..." assembles everything
+      into a single document.
 
 
 INSTALLATION
