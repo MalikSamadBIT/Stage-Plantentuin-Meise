@@ -78,6 +78,84 @@ GETTING STARTED
    and cross-check it against occurrence records.
 
 
+FEATURES IN DETAIL
+-------------------
+
+Fetch FASTA
+~~~~~~~~~~~
+
+This is the main pipeline. For each species name you provide, it searches
+NCBI GenBank and/or BOLD Systems for each DNA barcode marker you select,
+scores the candidate sequences it finds, and saves the best-scoring
+one(s) as FASTA (plus optional metadata) to your output folder and/or
+the database.
+
+How to use it:
+
+1. Choose a data source (NCBI, BOLD, or NCBI + BOLD). This changes which
+   options appear below it:
+     - NCBI shows a concurrent-workers field (parallel requests).
+     - BOLD and NCBI + BOLD show batch-size and batch-pause fields,
+       since BOLD is queried in batches rather than one request at a
+       time.
+   You can also have species that come up empty on one source
+   automatically retried on the other ("Retry NCBI no-matches with
+   BOLD" / "Retry BOLD no-matches with NCBI").
+
+2. Provide your species list, either by:
+     - selecting a CSV file with a "Name" column, or
+     - typing/pasting species names into the text box, comma-separated.
+   Both can be used together - the two lists are merged and
+   de-duplicated. There's also a shared species list (buttons below the
+   text box) that other tabs, such as Maps, can read from and write to,
+   so you don't have to retype the same species elsewhere in the app.
+
+3. (Optional) Resume a previous run instead of starting fresh: load the
+   no_matches.txt file from an earlier run's output folder to pick up
+   only the species/marker combinations that didn't get a match last
+   time. If a summary.csv from that run is found in the same folder,
+   this run's results are merged into it rather than overwriting it.
+
+4. Pick your markers: check any of ITS, ITS1, ITS2, rbcL, matK, trnL,
+   psbA-trnH, and/or add your own in "Extra markers" (comma separated).
+
+5. (Optional) Adjust filters: a candidate sequence whose description
+   contains a checked "bad word" (whole genome, chromosome, scaffold,
+   contig, assembly by default) is penalized in scoring - add your own
+   via "Extra bad words".
+
+6. Choose output options:
+     - How to organize the saved FASTA files: per-species folder,
+       per-marker subfolder within it, or one flat file. A live preview
+       of the resulting folder structure is shown on the right.
+     - Whether to also write a metadata text file, a no_matches.txt
+       (species/marker pairs with no result), a summary.csv
+       (sequence counts per species), and/or a zero_species.csv
+       (species that returned nothing at all).
+     - Whether to also save results into the configured database
+       (SQLite or MySQL, chosen in Settings) in addition to the files.
+
+7. Tune scoring (sliders on the right, 0-100): a target-country boost, a
+   neighbor-country boost, a Europe fallback score, a length bonus, and
+   a penalty for matching a "bad word" filter. The actual target/
+   neighbor country name lists are configured in Settings. For each
+   species/marker search, up to "Candidates to score per search" (10 by
+   default, set in Settings) results are pulled and scored, and the
+   top-scoring "Results to save per marker" (1 by default, set in
+   Settings) are kept.
+
+8. Click Run. A status message, progress bar, and estimated time per
+   sample are shown while it runs; detailed live logs appear in the
+   Terminal tab. If you're processing a lot of species, tune the
+   request pacing first in Settings (sleep between requests, worker
+   count for NCBI, or batch size/pause for BOLD) to stay under NCBI/
+   BOLD's rate limits.
+
+Prerequisite: an NCBI email address must be set in Settings (NCBI
+requires this for API access). An NCBI API key is optional but raises
+the rate limit from 3 to 10 requests/second.
+
+
 INSTALLATION
 ------------
 
