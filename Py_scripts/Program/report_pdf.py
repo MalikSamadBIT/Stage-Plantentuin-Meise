@@ -107,7 +107,7 @@ def _scaled_image(image_source, max_width):
     return img
 
 
-def _split_wide_image(image_path, available_width, target_dpi=150, row_gap=6):
+def _split_wide_image(image_bytes, available_width, target_dpi=150, row_gap=6):
     """
     MSA alignment images get wider with more sequence columns, but a plain
     "scale the whole thing to fit the page" shrinks long alignments into an
@@ -118,7 +118,7 @@ def _split_wide_image(image_path, available_width, target_dpi=150, row_gap=6):
     width, so readability stays consistent no matter how wide the original
     alignment is.
     """
-    img = PILImage.open(image_path)
+    img = PILImage.open(io.BytesIO(image_bytes))
     native_width, native_height = img.size
 
     # how many source pixels fit across the page's available width while
@@ -126,7 +126,7 @@ def _split_wide_image(image_path, available_width, target_dpi=150, row_gap=6):
     max_px_per_strip = (available_width / 72) * target_dpi
 
     if native_width <= max_px_per_strip:
-        return [_scaled_image(image_path, available_width)]
+        return [_scaled_image(io.BytesIO(image_bytes), available_width)]
 
     num_strips = math.ceil(native_width / max_px_per_strip)
     strip_width = math.ceil(native_width / num_strips)
@@ -380,7 +380,7 @@ def build_report_pdf(
         elif item["type"] == "msa":
             story.append(Paragraph(
                 f"{section_num}. Multiple sequence alignment", SECTION_STYLE))
-            story.extend(_split_wide_image(item["image_path"], doc.width))
+            story.extend(_split_wide_image(item["image_bytes"], doc.width))
             story.append(Paragraph(f"Figure {figure_num}. {item['title']}.",
                                    CAPTION_STYLE))
             figure_num += 1

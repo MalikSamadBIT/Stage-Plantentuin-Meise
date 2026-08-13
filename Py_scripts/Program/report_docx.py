@@ -204,17 +204,17 @@ def _build_synonyms_table(doc, synonym_results, available_width):
     return table
 
 
-def _add_split_image(doc, image_path, available_width, target_dpi=150):
+def _add_split_image(doc, image_bytes, available_width, target_dpi=150):
     # Same problem/fix as report_pdf.py's _split_wide_image: a long MSA
     # alignment scaled down to page width becomes unreadable, so crop it
     # into width-limited strips (full height) at a consistent DPI instead.
-    img = PILImage.open(image_path)
+    img = PILImage.open(io.BytesIO(image_bytes))
     native_width, native_height = img.size
 
     max_px_per_strip = available_width.inches * target_dpi
 
     if native_width <= max_px_per_strip:
-        doc.add_picture(image_path, width=available_width)
+        doc.add_picture(io.BytesIO(image_bytes), width=available_width)
         return
 
     num_strips = math.ceil(native_width / max_px_per_strip)
@@ -344,7 +344,7 @@ def build_report_docx(
                 doc, f"{section_num}. Multiple sequence alignment",
                 size=13, bold=True, space_before=14, space_after=2
             )
-            _add_split_image(doc, item["image_path"], available_width)
+            _add_split_image(doc, item["image_bytes"], available_width)
             _formatted_paragraph(
                 doc, f"Figure {figure_num}. {item['title']}.",
                 size=9, italic=True, color=MUTED_COLOR, space_after=4

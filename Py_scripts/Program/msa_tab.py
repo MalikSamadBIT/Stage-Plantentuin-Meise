@@ -414,11 +414,14 @@ def build_msa_tab(parent, root=None, report_items=None):
             title = f"MSA - {os.path.basename(title_source)}" \
                 if title_source else "MSA result"
 
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+
             report_items.append({
                 "type": "msa",
                 "title": title,
                 "subtitle": "Added from MSA tab",
-                "image_path": image_path,
+                "image_bytes": image_bytes,
                 "scores": dict(last_scores) if last_scores else None,
             })
             results_status_label.configure(text="Added to report.")
