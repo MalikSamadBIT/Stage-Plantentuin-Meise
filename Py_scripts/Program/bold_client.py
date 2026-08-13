@@ -107,7 +107,12 @@ def score_bold_record(record, w, bad_words, length_bands=None):
     group = detect_country_group(location)
     location_score = w.get(group, 0)
 
-    max_location = max(w.values()) if w else 40
+    # only the location-group weights (target/neighbor/europe/unknown) are
+    # a valid denominator here - w also carries length_bonus/bad_title_penalty,
+    # which would otherwise get picked up by max(w.values())
+    max_location = max(
+        w.get(k, 0) for k in ("target", "neighbor", "europe", "unknown")
+    ) or 40
 
     location_norm = (location_score / max_location) * 40
     length_norm = length_score
