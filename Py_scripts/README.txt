@@ -207,6 +207,39 @@ requires this for API access). An NCBI API key is optional but raises
 the rate limit from 3 to 10 requests/second.
 
 
+Retrieval Rate
+~~~~~~~~~~~~~~
+
+Visualizes how many sequences you retrieved per marker (and per source)
+after a Fetch FASTA run.
+
+How to use it:
+
+1. Data comes automatically from the most recent Fetch FASTA run in
+   this session, or click "Load CSV" to load any previous run's
+   summary.csv instead - this overrides the live data until you load a
+   different file or restart the app.
+
+2. Pick a chart type:
+     - Barplot - sequence count per marker.
+     - Piechart - each marker's share of the total.
+     - NCBI/BOLD - count split by source.
+     - Table - the raw summary data, sortable by clicking a column
+       header and filterable with the same filter-bar behavior as the
+       Database tab (type a query, optionally restrict it to one
+       column).
+
+3. Optionally customize the title/axis labels (Barplot and NCBI/BOLD),
+   then click "Display".
+
+4. "Save Plot" exports the current chart as PNG, JPEG, PDF, or SVG.
+   "Add to Report" pushes a snapshot of whatever chart is currently
+   displayed into the Gap Report (not available from the Table view,
+   which has no chart to add).
+
+5. The chart panel can be resized by dragging its bottom-right corner.
+
+
 Database
 ~~~~~~~~
 
@@ -253,6 +286,43 @@ Query Database:
       runs. If the active backend is SQLite, a timestamped backup of
       the database file is made automatically first.
     - A successful write automatically refreshes the View Database tab.
+
+
+BLAST
+~~~~~
+
+Builds a local BLAST database from sequences already in a database
+file, and searches it with a single query sequence or a batch FASTA
+file.
+
+How to use it:
+
+1. "Select Database" to load sequences from a SQLite database file.
+   This is a separate, independent file picker from the active
+   database in Settings - it always loads directly from a chosen .db
+   file rather than the shared SQLite/MySQL backend. Click "Reload" to
+   re-read the same file after it's changed elsewhere.
+
+2. "Select/Create BLAST Database":
+     - "Create New Database" exports every loaded sequence to a FASTA
+       file and runs makeblastdb to build a nucleotide BLAST index
+       from it.
+     - "Select Existing Database" points at an already-built index via
+       its .nin file.
+
+3. Provide a query: type a single sequence directly, or "Load Query
+   FASTA File..." to BLAST every sequence in a file at once (a loaded
+   file takes priority over the typed sequence - use "Clear" to go
+   back to typing one).
+
+4. Pick the BLAST program (blastn, blastp, blastx, tblastn, tblastx)
+   and click "Run BLAST". Output, in BLAST's standard pairwise text
+   format, appears in the box below; if the BLAST executable itself
+   fails, its error output is shown there instead.
+
+Prerequisite: NCBI BLAST+ must be available at the location this tab
+expects - bundled automatically in the packaged .exe, or installed and
+pointed at manually when running from source (see Installation).
 
 
 Synonym search
@@ -418,6 +488,17 @@ Report Contents:
       removable.
     - "Export to PDF..." / "Export to Word..." assembles everything
       into a single document.
+
+
+Terminal
+~~~~~~~~
+
+Shows live log output while a Fetch FASTA run is in progress - a
+status line plus a scrolling text log of everything printed during the
+search (NCBI/BOLD requests, matches found, warnings, etc.), so you can
+follow a long-running search without a separate console window.
+
+There's nothing to configure here - it's read-only output.
 
 
 INSTALLATION
