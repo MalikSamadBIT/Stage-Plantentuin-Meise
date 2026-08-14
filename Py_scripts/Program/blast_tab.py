@@ -326,6 +326,13 @@ def build_blast_tab(parent, root=None):
                 error_text = e.stderr or str(e)
                 parent.after(0, lambda: blast_failed(error_text))
                 return
+            except OSError as e:
+                error_text = (
+                    f"Could not run {blast_program} - is BLAST+ installed "
+                    f"at {BLAST_BIN}? ({e})"
+                )
+                parent.after(0, lambda: blast_failed(error_text))
+                return
             parent.after(
                 0, lambda: blast_succeeded(
                     result.stdout, blast_program, batch_note))
