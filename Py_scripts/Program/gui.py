@@ -1489,6 +1489,9 @@ def run_search():
                         log(e)
                         blocked = True
                         break
+                    except Exception as e:
+                        log(f"BOLD job error for {species} ({marker}):", e)
+                        records = []
 
                     for fasta_text, meta in records:
                         meta = {"species": species, "marker": marker, **meta}
@@ -1549,6 +1552,9 @@ def run_search():
                         log(e)
                         blocked = True
                         break
+                    except Exception as e:
+                        log(f"BOLD job error for {species} ({marker}):", e)
+                        records = []
 
                     for fasta_text, meta in records:
                         meta = {"species": species, "marker": marker, **meta}
@@ -1582,7 +1588,7 @@ def run_search():
 
                 # NCBI's rate cap
                 retry_rate_limiter = RateLimiter(
-                    min(float(sleep_entry.get()), 0.1))
+                    max(float(sleep_entry.get()), 0.1))
 
                 try:
                     retry_max_workers = max(1, int(workers_entry.get()))
@@ -1733,6 +1739,9 @@ def run_search():
                         log(e)
                         blocked = True
                         break
+                    except Exception as e:
+                        log(f"BOLD job error for {species} ({marker}):", e)
+                        records = []
 
                     if records:
                         bold_results[(species, marker)] = records
