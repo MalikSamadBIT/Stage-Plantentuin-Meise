@@ -1,5 +1,7 @@
+import re
 import sqlite3
 import threading
+import unicodedata
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -525,6 +527,16 @@ def _insert_ignore_into(conn, table):
         else f"INSERT OR IGNORE INTO {table}"
 
 
+def _update_ignore(conn, table):
+    # same idea as _insert_ignore_into, for UPDATE - used by
+    # merge_duplicate_species() below so repointing a foreign key that
+    # would collide with an existing row is silently skipped (that row is
+    # then a genuine duplicate of one already under the surviving species,
+    # and gets removed instead) rather than aborting the whole merge
+    return f"UPDATE IGNORE {table}" if conn.backend == "mysql" \
+        else f"UPDATE OR IGNORE {table}"
+
+
 def create_run(conn, output_dir, source):
     cur = conn.execute(
         "INSERT INTO runs (started_at, output_dir, source) VALUES (?, ?, ?)",
@@ -534,7 +546,30 @@ def create_run(conn, output_dir, source):
     return cur.lastrowid
 
 
+def _normalize_species_name(name):
+    """
+    Collapses whitespace/Unicode variants that would otherwise register as
+    a "different" species to the exact-string lookup below - trailing/
+    leading/doubled spaces from re-exported CSVs, and visually-identical
+    Unicode normalization forms (e.g. combining vs precomposed accented
+    characters) - without touching capitalization or the hybrid x marker,
+    since those can carry real taxonomic meaning rather than just being
+    formatting noise.
+
+    Without this, get_or_create_species() would silently create a second
+    species row for what's actually the same species (differing only in
+    whitespace/encoding), which lets the same sequence get re-fetched and
+    stored as an apparent duplicate later - the UNIQUE(species_id, marker,
+    accession) constraint on sequences can't catch it, since species_id
+    itself is different.
+    """
+    name = unicodedata.normalize("NFC", name)
+    return re.sub(r"\s+", " ", name).strip()
+
+
 def get_or_create_species(conn, canonical_name):
+    canonical_name = _normalize_species_name(canonical_name)
+
     cur = conn.execute(
         "SELECT id FROM species WHERE canonical_name = ?", (canonical_name,)
     )
@@ -620,6 +655,29 @@ def count_sequences_by_marker(conn, species_name):
     """, (species_name, species_name, species_name)).fetchall()
 
     return [(row["marker"], row["count"]) for row in rows]
+
+
+def get_sequences_for_species(conn, species_name, marker):
+    """
+    Returns [sequence, ...] on file for the given species name and marker,
+    matched case-insensitively against either its canonical name or any
+    synonym/queried_as name on file - same resolution rule as
+    count_sequences_by_marker.
+    """
+    rows = conn.execute("""
+        SELECT sequence
+        FROM sequences_view
+        WHERE marker = ?
+          AND (
+            LOWER(species) = LOWER(?)
+            OR LOWER(queried_as) = LOWER(?)
+            OR LOWER(species) IN (
+                SELECT LOWER(species) FROM synonyms_view WHERE LOWER(name) = LOWER(?)
+            )
+          )
+    """, (marker, species_name, species_name, species_name)).fetchall()
+
+    return [row["sequence"] for row in rows]
 
 
 def get_congener_sequences(conn, species_name, marker):
@@ -715,3 +773,176 @@ def fetch_by_accessions(conn, accessions):
             chunk
         ).fetchall())
     return rows
+
+
+# DUPLICATE CLEANUP-----------------------------------------------------
+# get_or_create_species() now normalizes new species names (see
+# _normalize_species_name above), which stops *new* duplicate species rows
+# from forming - these three functions clean up ones that already exist,
+# e.g. from before that fix, or from a database transferred in from
+# elsewhere. Used by the Query Database tab's "Clean Up Duplicates" button.
+
+def find_duplicate_species_groups(conn):
+    """
+    Returns [(keeper_id, [loser_id, ...]), ...] for every set of species
+    rows that normalize to the same name (see _normalize_species_name) -
+    exactly the condition that would otherwise let get_or_create_species()
+    silently fork a "new" species for what's actually the same one.
+    keeper_id is the lowest (oldest) id in each group.
+    """
+    rows = conn.execute("SELECT id, canonical_name FROM species").fetchall()
+
+    groups = {}
+    for row in rows:
+        key = _normalize_species_name(row["canonical_name"])
+        groups.setdefault(key, []).append(row["id"])
+
+    result = []
+    for ids in groups.values():
+        if len(ids) > 1:
+            keeper_id = min(ids)
+            loser_ids = sorted(i for i in ids if i != keeper_id)
+            result.append((keeper_id, loser_ids))
+    return result
+
+
+def count_duplicate_sequences(conn):
+    """
+    Number of "extra" rows in sequences sharing the same
+    (species_id, marker, accession) right now - i.e. how many rows
+    remove_duplicate_sequences() would remove if called on its own, with
+    no species merge involved.
+    """
+    rows = conn.execute(
+        "SELECT species_id, marker, accession FROM sequences").fetchall()
+    seen = set()
+    extra = 0
+    for row in rows:
+        key = (row["species_id"], row["marker"], row["accession"])
+        if key in seen:
+            extra += 1
+        else:
+            seen.add(key)
+    return extra
+
+
+def count_pending_duplicate_sequences(conn):
+    """
+    Total sequence rows that merge_duplicate_species() followed by
+    remove_duplicate_sequences() would remove if run right now - both
+    exact duplicates that already exist under the same species_id (see
+    count_duplicate_sequences), and ones that would only become
+    duplicates once find_duplicate_species_groups()'s pending merges are
+    applied (a loser's sequence colliding with one already under its
+    keeper). Read-only, used to preview an accurate total in the Query
+    Database tab's confirmation dialog before anything actually runs -
+    count_duplicate_sequences alone would understate it.
+    """
+    rows = conn.execute(
+        "SELECT species_id, marker, accession FROM sequences").fetchall()
+
+    # species_id -> keeper species_id, for every species involved in a
+    # pending merge (a keeper maps to itself)
+    redirect = {}
+    for keeper_id, loser_ids in find_duplicate_species_groups(conn):
+        redirect[keeper_id] = keeper_id
+        for loser_id in loser_ids:
+            redirect[loser_id] = keeper_id
+
+    seen = set()
+    extra = 0
+    for row in rows:
+        effective_species_id = redirect.get(
+            row["species_id"], row["species_id"])
+        key = (effective_species_id, row["marker"], row["accession"])
+        if key in seen:
+            extra += 1
+        else:
+            seen.add(key)
+    return extra
+
+
+def merge_duplicate_species(conn):
+    """
+    Merges every group found by find_duplicate_species_groups() into one
+    surviving row (the oldest), repointing sequences/synonyms to it and
+    removing the now-redundant species rows. Rows that can't be repointed
+    because the survivor already has a matching (species_id, marker,
+    accession)/(species_id, language, name) row are left on the loser and
+    cleaned up by remove_duplicate_sequences()/the equivalent synonyms
+    dedup below instead of being lost.
+    Returns (species_merged, sequences_orphaned, synonyms_orphaned) -
+    "orphaned" meaning left behind on the loser id, still to be removed.
+    """
+    groups = find_duplicate_species_groups(conn)
+
+    species_merged = 0
+    sequences_orphaned = 0
+    synonyms_orphaned = 0
+
+    for keeper_id, loser_ids in groups:
+        for loser_id in loser_ids:
+            conn.execute(
+                f"{_update_ignore(conn, 'sequences')} SET species_id = ? "
+                "WHERE species_id = ?",
+                (keeper_id, loser_id)
+            )
+            conn.execute(
+                f"{_update_ignore(conn, 'synonyms')} SET species_id = ? "
+                "WHERE species_id = ?",
+                (keeper_id, loser_id)
+            )
+
+            sequences_orphaned += conn.execute(
+                "SELECT COUNT(*) AS n FROM sequences WHERE species_id = ?",
+                (loser_id,)
+            ).fetchone()["n"]
+            synonyms_orphaned += conn.execute(
+                "SELECT COUNT(*) AS n FROM synonyms WHERE species_id = ?",
+                (loser_id,)
+            ).fetchone()["n"]
+
+            conn.execute(
+                "DELETE FROM sequences WHERE species_id = ?", (loser_id,))
+            conn.execute(
+                "DELETE FROM synonyms WHERE species_id = ?", (loser_id,))
+            conn.execute("DELETE FROM species WHERE id = ?", (loser_id,))
+            species_merged += 1
+
+    conn.commit()
+    return species_merged, sequences_orphaned, synonyms_orphaned
+
+
+def remove_duplicate_sequences(conn):
+    """
+    Removes exact-duplicate rows from sequences - same (species_id,
+    marker, accession) - keeping the oldest (lowest id) row in each group.
+    Should be a no-op on a database where the UNIQUE constraint is intact
+    (it already prevents this at insert time), but real duplicates can
+    still reach here after merge_duplicate_species() above, or on a MySQL
+    copy whose unique index didn't get created correctly by a transfer.
+    Returns the number of rows removed.
+    """
+    rows = conn.execute(
+        "SELECT id, species_id, marker, accession FROM sequences"
+    ).fetchall()
+
+    seen = {}
+    to_delete = []
+    for row in rows:
+        key = (row["species_id"], row["marker"], row["accession"])
+        if key in seen:
+            to_delete.append(row["id"])
+        else:
+            seen[key] = row["id"]
+
+    removed = 0
+    for i in range(0, len(to_delete), ACCESSION_CHUNK_SIZE):
+        chunk = to_delete[i:i + ACCESSION_CHUNK_SIZE]
+        placeholders = ",".join("?" for _ in chunk)
+        cur = conn.execute(
+            f"DELETE FROM sequences WHERE id IN ({placeholders})", chunk)
+        removed += cur.rowcount
+
+    conn.commit()
+    return removed

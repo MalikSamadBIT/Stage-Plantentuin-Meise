@@ -844,6 +844,156 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
             text_color="white"
         )
 
+    # DUPLICATE CLEANUP-----------------------------------------------------
+    # merges species rows that only differ in whitespace/Unicode form (see
+    # database._normalize_species_name) and removes exact-duplicate
+    # sequence rows left behind by that (or by a MySQL copy whose unique
+    # index didn't transfer correctly) - see database.py's
+    # find_duplicate_species_groups/merge_duplicate_species/
+    # remove_duplicate_sequences.
+
+    def confirm_cleanup(species_count, sequence_count):
+        result = {"confirmed": False}
+
+        dialog = ctk.CTkToplevel(root)
+        dialog.title("Confirm duplicate cleanup")
+        dialog.geometry("480x260")
+        dialog.transient(root)
+        dialog.grab_set()
+
+        ctk.CTkLabel(
+            dialog, text="⚠ This will modify the database:",
+            font=("Arial", 14, "bold"), text_color="orange"
+        ).pack(padx=20, pady=(20, 5), anchor="w")
+
+        ctk.CTkLabel(
+            dialog,
+            text=f"- Merge {species_count} duplicate species entry"
+                 f"{'ies' if species_count != 1 else ''} (repointing their "
+                 "sequences/synonyms to a single surviving row)\n"
+                 f"- Remove {sequence_count} duplicate sequence row"
+                 f"{'s' if sequence_count != 1 else ''}\n\n"
+                 "This cannot be undone except from a backup"
+                 + (" (one will be made automatically first)."
+                    if db_config.backend == "sqlite"
+                    else " - no automatic backup for MySQL, back up "
+                         "manually first if unsure."),
+            justify="left", wraplength=430
+        ).pack(padx=20, anchor="w")
+
+        def on_yes():
+            result["confirmed"] = True
+            dialog.destroy()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=15)
+
+        ctk.CTkButton(
+            btn_frame, text="Clean Up", command=on_yes, fg_color="#a83232"
+        ).pack(side="left", padx=10)
+        ctk.CTkButton(
+            btn_frame, text="Cancel", command=dialog.destroy
+        ).pack(side="left", padx=10)
+
+        dialog.wait_window()
+        return result["confirmed"]
+
+    def cleanup_scan_failed(error):
+        status_label.configure(
+            text=f"Duplicate scan failed: {error}", text_color="red")
+        cleanup_button.configure(state="normal")
+
+    def cleanup_finished(species_merged, sequences_orphaned,
+                          synonyms_orphaned, sequences_removed, backup_path):
+        text = (f"Cleaned up: merged {species_merged} duplicate species, "
+                f"removed {sequences_orphaned + sequences_removed} "
+                f"duplicate sequence row(s) and {synonyms_orphaned} "
+                "duplicate synonym row(s).")
+        if backup_path:
+            text += f" Backup saved to {os.path.basename(backup_path)}."
+        status_label.configure(text=text, text_color="green")
+        cleanup_button.configure(state="normal")
+        if on_data_changed:
+            on_data_changed()
+
+    def cleanup_failed(error):
+        status_label.configure(
+            text=f"Cleanup failed: {error}", text_color="red")
+        cleanup_button.configure(state="normal")
+
+    def do_cleanup(config_snapshot):
+        try:
+            backup_path = backup_sqlite_before_write(config_snapshot)
+
+            conn = database.connect(config_snapshot)
+            try:
+                species_merged, sequences_orphaned, synonyms_orphaned = (
+                    database.merge_duplicate_species(conn))
+                sequences_removed = database.remove_duplicate_sequences(conn)
+                conn.close()
+            except Exception:
+                conn.rollback()
+                conn.close()
+                raise
+        except Exception as e:
+            error_text = str(e)
+            parent.after(0, lambda: cleanup_failed(error_text))
+            return
+
+        parent.after(
+            0,
+            lambda: cleanup_finished(
+                species_merged, sequences_orphaned, synonyms_orphaned,
+                sequences_removed, backup_path)
+        )
+
+    def do_scan():
+        try:
+            config_snapshot = db_config.snapshot()
+            conn = database.connect(config_snapshot)
+            species_count = len(database.find_duplicate_species_groups(conn))
+            sequence_count = database.count_pending_duplicate_sequences(conn)
+            conn.close()
+        except Exception as e:
+            error_text = str(e)
+            parent.after(0, lambda: cleanup_scan_failed(error_text))
+            return
+
+        def show_result():
+            if species_count == 0 and sequence_count == 0:
+                status_label.configure(
+                    text="No duplicates found.", text_color="white")
+                cleanup_button.configure(state="normal")
+                return
+
+            if not confirm_cleanup(species_count, sequence_count):
+                status_label.configure(
+                    text="Cancelled - nothing was changed.",
+                    text_color="gray")
+                cleanup_button.configure(state="normal")
+                return
+
+            status_label.configure(
+                text="Cleaning up duplicates...", text_color="gray")
+            threading.Thread(
+                target=do_cleanup, args=(config_snapshot,), daemon=True
+            ).start()
+
+        parent.after(0, show_result)
+
+    def start_cleanup():
+        if not db_config.is_configured():
+            status_label.configure(
+                text="No database selected - choose one in the Settings tab.",
+                text_color="red")
+            return
+
+        cleanup_button.configure(state="disabled")
+        status_label.configure(
+            text="Scanning for duplicates...", text_color="gray")
+
+        threading.Thread(target=do_scan, daemon=True).start()
+
     button_row = ctk.CTkFrame(parent, fg_color="transparent")
     button_row.pack(anchor="w", padx=10, pady=(0, 10))
 
@@ -854,4 +1004,9 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
         button_row, text="Export Results to CSV...",
         command=export_results_csv, state="disabled"
     )
-    export_button.pack(side="left")
+    export_button.pack(side="left", padx=(0, 5))
+
+    cleanup_button = ctk.CTkButton(
+        button_row, text="Clean Up Duplicates...", command=start_cleanup
+    )
+    cleanup_button.pack(side="left")
