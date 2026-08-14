@@ -1,5 +1,7 @@
 import sqlite3
+import threading
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import customtkinter as ctk
 import pandas as pd
@@ -21,6 +23,7 @@ class DatabaseConfig:
     """
 
     def __init__(self):
+        self._lock = threading.Lock()
         self.backend = "sqlite"
         self.sqlite_path = ""
         self.mysql_host = "localhost"
@@ -32,6 +35,27 @@ class DatabaseConfig:
 
     def trace_add(self, mode, callback):
         return self.display_var.trace_add(mode, callback)
+
+    def snapshot(self):
+        """
+        An atomic point-in-time copy of the backend + connection fields.
+        set_sqlite()/set_mysql() can run on the main thread (e.g. Settings'
+        "Connect") while another tab's background thread is mid-read of
+        several of these fields (e.g. building a MySQL connection from
+        host/port/user/password/database one attribute at a time) - reading
+        the snapshot instead of live attributes avoids ending up with a mix
+        of old and new values.
+        """
+        with self._lock:
+            return SimpleNamespace(
+                backend=self.backend,
+                sqlite_path=self.sqlite_path,
+                mysql_host=self.mysql_host,
+                mysql_port=self.mysql_port,
+                mysql_user=self.mysql_user,
+                mysql_password=self.mysql_password,
+                mysql_database=self.mysql_database,
+            )
 
     def is_configured(self):
         if self.backend == "mysql":
@@ -51,17 +75,19 @@ class DatabaseConfig:
         self.display_var.set(text)
 
     def set_sqlite(self, path):
-        self.backend = "sqlite"
-        self.sqlite_path = path
+        with self._lock:
+            self.backend = "sqlite"
+            self.sqlite_path = path
         self.refresh_display()
 
     def set_mysql(self, host, port, user, password, database):
-        self.backend = "mysql"
-        self.mysql_host = host
-        self.mysql_port = port
-        self.mysql_user = user
-        self.mysql_password = password
-        self.mysql_database = database
+        with self._lock:
+            self.backend = "mysql"
+            self.mysql_host = host
+            self.mysql_port = port
+            self.mysql_user = user
+            self.mysql_password = password
+            self.mysql_database = database
         self.refresh_display()
 
 
@@ -288,6 +314,45 @@ class SQLiteConn:
         self._conn.close()
 
 
+def _translate_placeholders(sql):
+    """
+    Rewrites '?' parameter placeholders to MySQL's '%s', without touching
+    any '?' that appears inside a quoted string literal (e.g. a LIKE
+    pattern typed on the Query Database tab) - a plain sql.replace("?",
+    "%s") would corrupt those too.
+    """
+    result = []
+    in_string = None  # None, "'", or '"' - which quote we're currently inside
+    i = 0
+    n = len(sql)
+
+    while i < n:
+        ch = sql[i]
+
+        if in_string:
+            result.append(ch)
+            if ch == in_string:
+                if i + 1 < n and sql[i + 1] == in_string:
+                    # doubled quote ('' or "") - an escaped quote, not the end
+                    result.append(sql[i + 1])
+                    i += 2
+                    continue
+                in_string = None
+            i += 1
+            continue
+
+        if ch in ("'", '"'):
+            in_string = ch
+            result.append(ch)
+        elif ch == "?":
+            result.append("%s")
+        else:
+            result.append(ch)
+        i += 1
+
+    return "".join(result)
+
+
 class MySQLConn:
     """
     Same surface as SQLiteConn (execute/executemany/executescript/commit/
@@ -312,12 +377,12 @@ class MySQLConn:
 
     def execute(self, sql, params=()):
         cur = self._conn.cursor(dictionary=True, buffered=True)
-        cur.execute(sql.replace("?", "%s"), params)
+        cur.execute(_translate_placeholders(sql), params)
         return cur
 
     def executemany(self, sql, seq_of_params):
         cur = self._conn.cursor()
-        cur.executemany(sql.replace("?", "%s"), list(seq_of_params))
+        cur.executemany(_translate_placeholders(sql), list(seq_of_params))
         return cur
 
     def executescript(self, sql):
@@ -437,12 +502,15 @@ def _connect_mysql(config):
 
 def connect(source):
     """
-    source: either a DatabaseConfig instance (the shared program-wide
-    backend choice made in the Settings tab - SQLite or MySQL), or a plain
-    SQLite file path string for callers that manage their own file
-    selection independently of the Settings tab (e.g. blast_tab.py).
+    source: a DatabaseConfig instance, a DatabaseConfig.snapshot() (an
+    atomic point-in-time copy - see DatabaseConfig.snapshot for why a
+    caller would want one), or a plain SQLite file path string for callers
+    that manage their own file selection independently of the Settings tab
+    (e.g. blast_tab.py).
     """
-    if isinstance(source, DatabaseConfig):
+    if hasattr(source, "backend"):
+        # DatabaseConfig itself isn't atomic across these two attribute
+        # reads - pass source.snapshot() in instead when that matters
         if source.backend == "mysql":
             return _connect_mysql(source)
         return _connect_sqlite(source.sqlite_path)
@@ -560,8 +628,18 @@ def get_congener_sequences(conn, species_name, marker):
     file, for the given marker, belonging to a different species in the
     same genus as species_name.
     """
-    genus = species_name.split()[0].lower()
-    ...
+    genus = species_name.split()[0]
+    genus_pattern = f"{genus} %"
+
+    rows = conn.execute("""
+        SELECT species, sequence
+        FROM sequences_view
+        WHERE marker = ?
+          AND LOWER(species) LIKE LOWER(?)
+          AND LOWER(species) != LOWER(?)
+    """, (marker, genus_pattern, species_name)).fetchall()
+
+    return [(row["species"], row["sequence"]) for row in rows]
 
 
 def extract_sequence(fasta_text):

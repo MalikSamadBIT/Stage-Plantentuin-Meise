@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 import threading
 import tkinter
@@ -590,6 +591,15 @@ _READ_ONLY_PREFIXES = (
     "select", "pragma", "show", "explain", "with", "desc", "describe"
 )
 
+# a "with" statement can still be a writable CTE (e.g.
+# "WITH d AS (DELETE FROM ... RETURNING ...) SELECT * FROM d") - unlike the
+# other read-only prefixes, which can't syntactically contain DML, so it
+# needs its own check rather than being trusted on the prefix alone
+_WRITE_KEYWORD_RE = re.compile(
+    r"\b(insert|update|delete|replace|create|drop|alter|truncate)\b",
+    re.IGNORECASE
+)
+
 
 def _build_query_tab(parent, root, db_config, on_data_changed=None):
     """
@@ -666,7 +676,12 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
         export_button.configure(state="disabled")
 
     def looks_read_only(sql):
-        return sql.strip().lower().startswith(_READ_ONLY_PREFIXES)
+        normalized = sql.strip().lower()
+        if not normalized.startswith(_READ_ONLY_PREFIXES):
+            return False
+        if normalized.startswith("with") and _WRITE_KEYWORD_RE.search(sql):
+            return False
+        return True
 
     def confirm_write(sql):
         result = {"confirmed": False}
@@ -730,24 +745,28 @@ def _build_query_tab(parent, root, db_config, on_data_changed=None):
             text=f"Query failed: {error}", text_color="red")
         run_button.configure(state="normal")
 
-    def backup_sqlite_before_write():
+    def backup_sqlite_before_write(config):
 
-        if db_config.backend != "sqlite" or not db_config.sqlite_path:
+        if config.backend != "sqlite" or not config.sqlite_path:
             return None
 
-        base, ext = os.path.splitext(db_config.sqlite_path)
+        base, ext = os.path.splitext(config.sqlite_path)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup_path = f"{base}.backup-{timestamp}{ext}"
-        shutil.copy2(db_config.sqlite_path, backup_path)
+        shutil.copy2(config.sqlite_path, backup_path)
         return backup_path
 
     def do_run(sql):
         try:
+            # one atomic snapshot for the whole operation, so a backend
+            # switch in Settings mid-run can't make the backup and the
+            # actual write disagree about which database is being touched
+            config_snapshot = db_config.snapshot()
 
             backup_path = (None if looks_read_only(sql)
-                           else backup_sqlite_before_write())
+                           else backup_sqlite_before_write(config_snapshot))
 
-            conn = database.connect(db_config)
+            conn = database.connect(config_snapshot)
             try:
                 cur = conn.execute(sql)
                 if cur.description is not None:
