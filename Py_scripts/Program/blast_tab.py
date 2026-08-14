@@ -250,6 +250,13 @@ def build_blast_tab(parent, root=None):
             status_label.configure(text="Failed to create BLAST database.")
             set_output(e.stderr or str(e))
             return
+        except OSError as e:
+            status_label.configure(text="Failed to create BLAST database.")
+            set_output(
+                f"Could not run makeblastdb - is BLAST+ installed at "
+                f"{BLAST_BIN}? ({e})"
+            )
+            return
 
         blast_db_path.set(db_out)
         status_label.configure(
