@@ -1095,7 +1095,10 @@ ctk.CTkLabel(right, text="📊 SCORING", font=("Arial", 18, "bold")).pack(pady=1
 
 
 def slider(label, config_key, default):
-    default = int(_saved_config.get(config_key, default))
+    try:
+        default = int(_saved_config.get(config_key, default))
+    except (TypeError, ValueError):
+        pass
 
     frame = ctk.CTkFrame(right)
     frame.pack(fill="x", pady=8, padx=10)
