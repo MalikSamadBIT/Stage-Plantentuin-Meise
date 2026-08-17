@@ -69,7 +69,8 @@ def _build_view_tab(parent, root, db_config):
     ).pack(side="left", padx=(0, 5))
 
     ctk.CTkButton(
-        top_bar, text="Export View to FASTA...", command=lambda: export_fasta()
+        top_bar, text="Export View to FASTA/NEXUS...",
+        command=lambda: export_fasta()
     ).pack(side="left", padx=(0, 15))
 
     ctk.CTkLabel(top_bar, text="Table:").pack(side="left", padx=(0, 5))
@@ -319,6 +320,38 @@ def _build_view_tab(parent, root, db_config):
 
     # EXPORT----------------------------------------------------------------
 
+    def _write_fasta(path, rows):
+        with open(path, "w", encoding="utf-8") as f:
+            for row in rows:
+                header = f">{row['accession']} {row['species']} {row['marker']}"
+                f.write(header + "\n" + row["sequence"] + "\n")
+
+    def _write_nexus(path, rows):
+        # a NEXUS DATA block needs a rectangular matrix (every sequence the
+        # same length) - these are raw, unaligned sequences straight from
+        # the database, so pad the shorter ones with gap characters rather
+        # than writing an invalid matrix. This isn't a real alignment, just
+        # what the NEXUS format requires structurally.
+        labels = [
+            f"{row['accession']}_{row['species']}_{row['marker']}".replace(
+                " ", "_")
+            for row in rows
+        ]
+        sequences = [row["sequence"] for row in rows]
+        max_len = max((len(s) for s in sequences), default=0)
+        padded = [s.ljust(max_len, "-") for s in sequences]
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("#NEXUS\n")
+            f.write("BEGIN DATA;\n")
+            f.write(f"DIMENSIONS NTAX={len(rows)} NCHAR={max_len};\n")
+            f.write("FORMAT DATATYPE=DNA MISSING=? GAP=- INTERLEAVE=NO;\n")
+            f.write("MATRIX\n")
+            for label, seq in zip(labels, padded):
+                f.write(f"{label}  {seq}\n")
+            f.write(";\n")
+            f.write("END;\n")
+
     def export_fasta():
         if view_df is None or view_df.empty:
             status_label.configure(
@@ -327,14 +360,17 @@ def _build_view_tab(parent, root, db_config):
 
         if table_var.get() != "Sequences":
             status_label.configure(
-                text="FASTA export is only available for the Sequences table.")
+                text="FASTA/NEXUS export is only available for the "
+                     "Sequences table.")
             return
 
         path = filedialog.asksaveasfilename(
             parent=root,
-            title="Export current view to FASTA",
+            title="Export current view",
             defaultextension=".fasta",
-            filetypes=[("FASTA", "*.fasta"), ("All files", "*.*")]
+            filetypes=[
+                ("FASTA", "*.fasta"), ("NEXUS", "*.nex"), ("All files", "*.*")
+            ]
         )
         if not path:
             return
@@ -354,10 +390,10 @@ def _build_view_tab(parent, root, db_config):
             status_label.configure(text=f"Export failed: {e}")
             return
 
-        with open(path, "w", encoding="utf-8") as f:
-            for row in rows:
-                header = f">{row['accession']} {row['species']} {row['marker']}"
-                f.write(header + "\n" + row["sequence"] + "\n")
+        if os.path.splitext(path)[1].lower() in (".nex", ".nexus"):
+            _write_nexus(path, rows)
+        else:
+            _write_fasta(path, rows)
 
         status_label.configure(
             text=f"Exported {len(rows)} sequence(s) to {os.path.basename(path)}.")
