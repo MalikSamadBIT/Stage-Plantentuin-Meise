@@ -142,14 +142,14 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE TABLE IF NOT EXISTS species (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    canonical_name TEXT NOT NULL UNIQUE
+    canonical_name VARCHAR(255) NOT NULL UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS synonyms (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     species_id INTEGER NOT NULL REFERENCES species(id),
-    language TEXT,
-    name TEXT NOT NULL,
+    language VARCHAR(32),
+    name VARCHAR(255) NOT NULL,
     UNIQUE (species_id, language, name)
 );
 
@@ -168,9 +168,9 @@ CREATE TABLE IF NOT EXISTS sequences (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL REFERENCES runs(id),
     species_id INTEGER NOT NULL REFERENCES species(id),
-    marker TEXT NOT NULL,
+    marker VARCHAR(64) NOT NULL,
     source TEXT,
-    accession TEXT,
+    accession VARCHAR(255),
     organism TEXT,
     title TEXT,
     length INTEGER,
@@ -428,9 +428,9 @@ def _migrate_sequences_table(conn):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id INTEGER NOT NULL REFERENCES runs(id),
                 species_id INTEGER NOT NULL REFERENCES species(id),
-                marker TEXT NOT NULL,
+                marker VARCHAR(64) NOT NULL,
                 source TEXT,
-                accession TEXT,
+                accession VARCHAR(255),
                 organism TEXT,
                 title TEXT,
                 length INTEGER,
@@ -477,6 +477,124 @@ def _migrate_sequences_table(conn):
         raise
 
 
+def _text_columns_need_migration(conn):
+    # older databases declared the UNIQUE-constrained species/synonyms/
+    # sequences text columns below as unbounded TEXT, which MySQL can't
+    # build a unique index on without an explicit prefix length - breaks
+    # the Database tab's SQLite -> MySQL transfer. VARCHAR(N) behaves
+    # identically to TEXT in SQLite (no real length enforcement), so this
+    # only matters for that MySQL transfer, not for SQLite itself.
+    cols = {row["name"]: row["type"]
+            for row in conn.execute("PRAGMA table_info(species)")}
+    return cols.get("canonical_name", "").upper() == "TEXT"
+
+
+def _migrate_text_columns(conn):
+    for table in ("species_new", "synonyms_new", "sequences_new"):
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    try:
+        conn.execute("BEGIN")
+
+        # the views reference these tables by name - SQLite's ALTER TABLE
+        # ... RENAME rewrites any view that references the renamed table,
+        # which fails while the table being renamed into place doesn't
+        # exist yet mid-rebuild, so drop them first and recreate at the end
+        conn.execute("DROP VIEW IF EXISTS synonyms_view")
+        conn.execute("DROP VIEW IF EXISTS sequences_view")
+
+        conn.execute("""
+            CREATE TABLE species_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                canonical_name VARCHAR(255) NOT NULL UNIQUE
+            )
+        """)
+        conn.execute("INSERT INTO species_new SELECT * FROM species")
+        conn.execute("DROP TABLE species")
+        conn.execute("ALTER TABLE species_new RENAME TO species")
+
+        conn.execute("""
+            CREATE TABLE synonyms_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                species_id INTEGER NOT NULL REFERENCES species(id),
+                language VARCHAR(32),
+                name VARCHAR(255) NOT NULL,
+                UNIQUE (species_id, language, name)
+            )
+        """)
+        conn.execute("INSERT INTO synonyms_new SELECT * FROM synonyms")
+        conn.execute("DROP TABLE synonyms")
+        conn.execute("ALTER TABLE synonyms_new RENAME TO synonyms")
+
+        conn.execute("""
+            CREATE TABLE sequences_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES runs(id),
+                species_id INTEGER NOT NULL REFERENCES species(id),
+                marker VARCHAR(64) NOT NULL,
+                source TEXT,
+                accession VARCHAR(255),
+                organism TEXT,
+                title TEXT,
+                length INTEGER,
+                geo_loc TEXT,
+                lat_lon TEXT,
+                collection_date TEXT,
+                voucher TEXT,
+                score REAL,
+                queried_as TEXT,
+                sequence TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                UNIQUE (species_id, marker, accession)
+            )
+        """)
+        conn.execute("INSERT INTO sequences_new SELECT * FROM sequences")
+        conn.execute("DROP TABLE sequences")
+        conn.execute("ALTER TABLE sequences_new RENAME TO sequences")
+
+        conn.execute("""
+            CREATE VIEW synonyms_view AS
+            SELECT
+                synonyms.id,
+                species.canonical_name AS species,
+                synonyms.language,
+                synonyms.name
+            FROM synonyms
+            JOIN species ON species.id = synonyms.species_id
+        """)
+        conn.execute("""
+            CREATE VIEW sequences_view AS
+            SELECT
+                sequences.id,
+                sequences.run_id,
+                species.canonical_name AS species,
+                sequences.marker,
+                sequences.source,
+                sequences.accession,
+                sequences.organism,
+                sequences.title,
+                sequences.length,
+                sequences.geo_loc,
+                sequences.lat_lon,
+                sequences.collection_date,
+                sequences.voucher,
+                sequences.score,
+                sequences.queried_as,
+                sequences.sequence,
+                sequences.fetched_at
+            FROM sequences
+            JOIN species ON species.id = sequences.species_id
+        """)
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        for table in ("species_new", "synonyms_new", "sequences_new"):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+        conn.commit()
+        raise
+
+
 def _connect_sqlite(path):
     conn = SQLiteConn(path)
 
@@ -486,6 +604,9 @@ def _connect_sqlite(path):
         _migrate_sequences_table(conn)
 
     conn.executescript(SEQUENCES_SCHEMA)
+
+    if _text_columns_need_migration(conn):
+        _migrate_text_columns(conn)
 
     return conn
 
