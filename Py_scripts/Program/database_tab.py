@@ -69,8 +69,8 @@ def _build_view_tab(parent, root, db_config):
     ).pack(side="left", padx=(0, 5))
 
     ctk.CTkButton(
-        top_bar, text="Export View to FASTA/NEXUS...",
-        command=lambda: export_fasta()
+        top_bar, text="Export View to CSV/FASTA/NEXUS...",
+        command=lambda: export_view()
     ).pack(side="left", padx=(0, 15))
 
     ctk.CTkLabel(top_bar, text="Table:").pack(side="left", padx=(0, 5))
@@ -352,27 +352,37 @@ def _build_view_tab(parent, root, db_config):
             f.write(";\n")
             f.write("END;\n")
 
-    def export_fasta():
+    def export_view():
         if view_df is None or view_df.empty:
             status_label.configure(
                 text="Nothing to export - load a database first.")
+            return
+
+        path = filedialog.asksaveasfilename(
+            parent=root,
+            title="Export current view",
+            defaultextension=".csv",
+            filetypes=[
+                ("CSV", "*.csv"), ("FASTA", "*.fasta"), ("NEXUS", "*.nex"),
+                ("All files", "*.*")
+            ]
+        )
+        if not path:
+            return
+
+        ext = os.path.splitext(path)[1].lower()
+
+        if ext == ".csv":
+            view_df.to_csv(path, index=False)
+            status_label.configure(
+                text=f"Exported {len(view_df)} row(s) to "
+                     f"{os.path.basename(path)}.")
             return
 
         if table_var.get() != "Sequences":
             status_label.configure(
                 text="FASTA/NEXUS export is only available for the "
                      "Sequences table.")
-            return
-
-        path = filedialog.asksaveasfilename(
-            parent=root,
-            title="Export current view",
-            defaultextension=".fasta",
-            filetypes=[
-                ("FASTA", "*.fasta"), ("NEXUS", "*.nex"), ("All files", "*.*")
-            ]
-        )
-        if not path:
             return
 
         accessions = [a for a in view_df["accession"].tolist() if a]
@@ -390,7 +400,7 @@ def _build_view_tab(parent, root, db_config):
             status_label.configure(text=f"Export failed: {e}")
             return
 
-        if os.path.splitext(path)[1].lower() in (".nex", ".nexus"):
+        if ext in (".nex", ".nexus"):
             _write_nexus(path, rows)
         else:
             _write_fasta(path, rows)
