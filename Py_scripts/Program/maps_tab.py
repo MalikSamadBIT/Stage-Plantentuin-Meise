@@ -1,16 +1,40 @@
 import threading
+import webbrowser
 
 import customtkinter as ctk
 import tkintermapview
 from tkcalendar import DateEntry
 
 import database
-from geoloc_client import SITES, fetch_grid_data, lookup_species_id
+from geoloc_client import (
+    SITES, build_gridcell_url, fetch_grid_data, lookup_species_id
+)
 
 DEFAULT_SITE = "Belgium (waarnemingen.be)"
 DEFAULT_SPECIES_NAME = ""
 DEFAULT_START_DATE = "2016-02-29"
 DEFAULT_END_DATE = "2026-07-28"
+
+# light -> dark density gradient (ColorBrewer YlOrRd-style) for shading
+# grid cells by observation count, light-to-heavy
+_HEATMAP_STOPS = [
+    (0.0, (255, 255, 178)),
+    (0.5, (253, 141, 60)),
+    (1.0, (189, 0, 38)),
+]
+
+
+def _color_for_count(count, max_count):
+    t = 0.0 if max_count <= 0 else max(0.0, min(1.0, count / max_count))
+
+    for (t0, c0), (t1, c1) in zip(_HEATMAP_STOPS, _HEATMAP_STOPS[1:]):
+        if t0 <= t <= t1:
+            frac = (t - t0) / (t1 - t0)
+            rgb = tuple(round(c0[i] + (c1[i] - c0[i]) * frac)
+                        for i in range(3))
+            return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+    return "#{:02x}{:02x}{:02x}".format(*_HEATMAP_STOPS[-1][1])
 
 
 def build_maps_tab(parent, root=None, db_config=None):
@@ -54,6 +78,12 @@ def build_maps_tab(parent, root=None, db_config=None):
     load_button = ctk.CTkButton(controls, text="Load")
     load_button.pack(side="left")
 
+    show_pins_var = ctk.BooleanVar(value=True)
+    ctk.CTkSwitch(
+        controls, text="Show pins", variable=show_pins_var,
+        command=lambda: render_cells()
+    ).pack(side="left", padx=(12, 0))
+
     status_label = ctk.CTkLabel(
         parent, text="Choose a species and date range, then click Load.")
     status_label.pack(anchor="w", padx=10, pady=(0, 5))
@@ -69,6 +99,7 @@ def build_maps_tab(parent, root=None, db_config=None):
     # fetch_grid_data() drives a headless browser and can take 10-20s (page load + anti-bot check)  runs on a background thread
 
     result = {}
+    last_state = {"cells": [], "site_label": None}
 
     def check_database(species_name):
         if not db_config.is_configured():
@@ -98,26 +129,93 @@ def build_maps_tab(parent, root=None, db_config=None):
         try:
             site = SITES[site_key]
             species_id = lookup_species_id(species_name, site["base_url"])
-            result["cells"] = fetch_grid_data(
+            cells = fetch_grid_data(
                 site["base_url"], species_id, start_date, end_date, site["map_type"]
             )
+            for cell in cells:
+                cell["link"] = build_gridcell_url(
+                    site["base_url"], cell["cell_id"], species_id,
+                    start_date, end_date
+                )
+            result["cells"] = cells
+            result["site_label"] = site_key
         except Exception as e:
             import traceback
             traceback.print_exc()
             result["error"] = str(e)
 
+    def _show_cell_popup(cell, site_label):
+        win = ctk.CTkToplevel(root or parent)
+        win.title("Grid cell details")
+        win.geometry("340x240")
+        win.transient(root or parent)
+        win.grab_set()
+
+        ctk.CTkLabel(
+            win, text=f"{cell['num_obs']} observation(s)",
+            font=("Arial", 16, "bold")
+        ).pack(padx=20, pady=(20, 2), anchor="w")
+
+        ctk.CTkLabel(
+            win, text=f"{cell['count']} record(s) in this cell",
+            text_color="gray"
+        ).pack(padx=20, anchor="w")
+
+        ctk.CTkLabel(
+            win, text=f"Location: {cell['lat']:.5f}, {cell['lon']:.5f}",
+            text_color="gray"
+        ).pack(padx=20, pady=(8, 0), anchor="w")
+
+        ctk.CTkLabel(
+            win, text=f"Cell ID: {cell['cell_id']}", text_color="gray"
+        ).pack(padx=20, anchor="w")
+
+        if cell.get("link"):
+            ctk.CTkButton(
+                win, text=f"Open this cell on {site_label}",
+                command=lambda: webbrowser.open(cell["link"])
+            ).pack(padx=20, pady=(18, 5), fill="x")
+
+        ctk.CTkButton(win, text="Close", command=win.destroy).pack(pady=(0, 15))
+
+    def render_cells():
+        cells = last_state["cells"]
+        site_label = last_state.get("site_label") or "the source site"
+
+        map_widget.delete_all_marker()
+        map_widget.delete_all_polygon()
+
+        max_count = max((cell["num_obs"] for cell in cells), default=0)
+
+        for cell in cells:
+            if cell.get("polygon"):
+                map_widget.set_polygon(
+                    cell["polygon"],
+                    fill_color=_color_for_count(cell["num_obs"], max_count),
+                    outline_color="#333333",
+                    border_width=1,
+                )
+            if show_pins_var.get():
+                map_widget.set_marker(
+                    cell["lat"], cell["lon"],
+                    text=f"{cell['num_obs']}",
+                    command=lambda _m, c=cell, label=site_label:
+                        _show_cell_popup(c, label)
+                )
+
     def poll():
         if "cells" in result:
             cells = result.pop("cells")
+            last_state["cells"] = cells
+            last_state["site_label"] = result.pop("site_label", None)
+
             status_label.configure(
                 text=f"Loaded {len(cells)} grid cells.", text_color="white")
             db_status_label.configure(text=result.pop("db_status", ""))
             load_button.configure(state="normal", text="Load")
-            map_widget.delete_all_marker()
-            for cell in cells:
-                map_widget.set_marker(
-                    cell["lat"], cell["lon"],
-                    text=f"{cell['num_obs']}")
+
+            render_cells()
+
             if cells:
                 map_widget.fit_bounding_box(
                     (max(c["lat"] for c in cells), min(c["lon"]

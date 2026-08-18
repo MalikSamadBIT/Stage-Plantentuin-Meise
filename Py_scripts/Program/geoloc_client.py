@@ -57,6 +57,13 @@ def _cell_centroid(coordinates):
     return sum(lats) / len(lats), sum(lons) / len(lons)
 
 
+def _cell_polygon(coordinates):
+    # GeoJSON rings are [lon, lat] pairs - tkintermapview's set_polygon
+    # wants (lat, lon), the same convention set_marker already uses here.
+    ring = coordinates[0]
+    return [(pt[1], pt[0]) for pt in ring]
+
+
 # only accepts these preset lookback windows (day/week/month/6mo/1y/5y/10y),
 INTERVAL_CHOICES = [86400, 604800, 2592000,
                     15552000, 31536000, 157680000, 315360000]
@@ -84,12 +91,29 @@ def _new_browser_page(p):
     return browser, page
 
 
-def _fetch_grid_features(page, base_url, species_id, start_date, end_date, map_type):
+def build_species_map_url(base_url, species_id, start_date, end_date, map_type):
+    # the page a human would land on for this species/date-range/grid as a
+    # whole - use build_gridcell_url instead for a link to one specific cell
     interval = _interval_for(start_date, end_date)
-    map_url = (
+    return (
         f"{base_url}/species/{species_id}/maps/"
         f"?start_date={start_date}&interval={interval}&end_date={end_date}&map_type={map_type}"
     )
+
+
+def build_gridcell_url(base_url, cell_id, species_id, start_date, end_date):
+    # a page dedicated to one grid cell's observations - not reachable by
+    # clicking the cell on the map itself (that's AJAX-only, see
+    # occurrence-map.js), but this URL works directly.
+    return (
+        f"{base_url}/locations/gridcell/{cell_id}/observations/"
+        f"?date_after={start_date}&date_before={end_date}&species={species_id}"
+    )
+
+
+def _fetch_grid_features(page, base_url, species_id, start_date, end_date, map_type):
+    map_url = build_species_map_url(
+        base_url, species_id, start_date, end_date, map_type)
     json_url = map_url + "&json="
 
     # Visit the normal map page first so Anubis's JS challenge runs and sets the auth cookie
@@ -111,7 +135,8 @@ def _fetch_grid_features(page, base_url, species_id, start_date, end_date, map_t
 
 
 def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
-    # Returns a list of dicts: cell_id, lat, lon, count, num_obs.
+    # Returns a list of dicts: cell_id, lat, lon, count, num_obs, polygon
+    # (the cell's actual grid-square boundary, as [(lat, lon), ...]).
     with sync_playwright() as p:
         browser, page = _new_browser_page(p)
         features = _fetch_grid_features(
@@ -121,7 +146,8 @@ def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
     results = []
     for feat in features:
         props = feat["properties"]
-        lat, lon = _cell_centroid(feat["geometry"]["coordinates"])
+        coordinates = feat["geometry"]["coordinates"]
+        lat, lon = _cell_centroid(coordinates)
         results.append(
             {
                 "cell_id": props["cell"],
@@ -129,6 +155,7 @@ def fetch_grid_data(base_url, species_id, start_date, end_date, map_type):
                 "lon": lon,
                 "count": props["count"],
                 "num_obs": props["num_obs"],
+                "polygon": _cell_polygon(coordinates),
             }
         )
     return results
