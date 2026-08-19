@@ -12,7 +12,8 @@ from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
-    HRFlowable, Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    HRFlowable, Image, Paragraph, Preformatted, SimpleDocTemplate, Spacer,
+    Table, TableStyle
 )
 
 import gap_analysis
@@ -49,6 +50,13 @@ except Exception:
     FONT_BOLD = "Times-Bold"
     FONT_ITALIC = "Times-Italic"
 
+try:
+    pdfmetrics.registerFont(
+        TTFont("BlastMono", os.path.join(_FONT_DIR, "cour.ttf")))
+    FONT_MONO = "BlastMono"
+except Exception:
+    FONT_MONO = "Courier"
+
 _styles = getSampleStyleSheet()
 
 TITLE_STYLE = ParagraphStyle(
@@ -76,6 +84,10 @@ CELL_STYLE = ParagraphStyle(
 )
 HEADER_STYLE = ParagraphStyle(
     "TableHeader", parent=CELL_STYLE, fontName=FONT_BOLD, alignment=TA_CENTER
+)
+BLAST_MONO_STYLE = ParagraphStyle(
+    "BlastMono", parent=_styles["Normal"], fontName=FONT_MONO,
+    fontSize=8.5, leading=11
 )
 
 
@@ -277,6 +289,39 @@ def _build_synonyms_table(synonym_results):
         ("TOPPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
+
+
+def build_blast_pdf(path, result):
+    """
+    result: {"blast_program", "database", "query_source", "stdout"} - see
+    blast_tab.py's export_results() for how these are gathered from a
+    finished BLAST run.
+    """
+    doc = SimpleDocTemplate(
+        path, pagesize=A4,
+        leftMargin=2.2 * cm, rightMargin=2.2 * cm,
+        topMargin=2 * cm, bottomMargin=2 * cm
+    )
+
+    story = [
+        Paragraph("BLAST results", TITLE_STYLE),
+        Paragraph(
+            f"Flora Fetch - generated "
+            f"{datetime.now().strftime('%d %B %Y %H:%M')}",
+            META_STYLE
+        ),
+        Paragraph(
+            f"{result['blast_program']} - {result['query_source']} against "
+            f"database \"{result['database']}\"",
+            META_STYLE
+        ),
+        Spacer(1, 6),
+        HRFlowable(width="100%", thickness=1, color=colors.black),
+        Spacer(1, 8),
+        Preformatted(result["stdout"], BLAST_MONO_STYLE),
+    ]
+
+    doc.build(story, onFirstPage=_page_footer, onLaterPages=_page_footer)
 
 
 def build_report_pdf(

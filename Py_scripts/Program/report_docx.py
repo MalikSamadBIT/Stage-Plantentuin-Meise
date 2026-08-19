@@ -232,6 +232,56 @@ def _add_split_image(doc, image_bytes, available_width, target_dpi=150):
         doc.add_picture(buf, width=available_width)
 
 
+def build_blast_docx(path, result):
+    """
+    result: {"blast_program", "database", "query_source", "stdout"} - see
+    blast_tab.py's export_results() for how these are gathered from a
+    finished BLAST run.
+    """
+    doc = Document()
+    doc.styles["Normal"].font.name = "Times New Roman"
+    doc.styles["Normal"].font.size = Pt(10.5)
+
+    section = doc.sections[0]
+    section.left_margin = section.right_margin = Cm(2.2)
+    section.top_margin = section.bottom_margin = Cm(2)
+
+    _formatted_paragraph(
+        doc, "BLAST results", size=20, bold=True,
+        alignment=WD_ALIGN_PARAGRAPH.CENTER, space_after=2
+    )
+    _formatted_paragraph(
+        doc,
+        f"Flora Fetch - generated "
+        f"{datetime.now().strftime('%d %B %Y %H:%M')}",
+        size=10, italic=True, alignment=WD_ALIGN_PARAGRAPH.CENTER,
+        color=MUTED_COLOR, space_after=2
+    )
+    _formatted_paragraph(
+        doc,
+        f"{result['blast_program']} - {result['query_source']} against "
+        f"database \"{result['database']}\"",
+        size=10, italic=True, alignment=WD_ALIGN_PARAGRAPH.CENTER,
+        color=MUTED_COLOR, space_after=4
+    )
+    _add_horizontal_rule(doc)
+
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.line_spacing = 1.0
+
+    lines = result["stdout"].splitlines()
+    for i, line in enumerate(lines):
+        run = p.add_run(line)
+        run.font.name = "Courier New"
+        run.font.size = Pt(8.5)
+        if i < len(lines) - 1:
+            run.add_break()
+
+    _add_page_number_footer(doc)
+    doc.save(path)
+
+
 def build_report_docx(
     path, rows, target_markers, meta, report_items, status_chart_bytes=None
 ):

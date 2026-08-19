@@ -1,4 +1,5 @@
 import os
+import platform
 import subprocess
 import sys
 import threading
@@ -15,11 +16,19 @@ from pymsa import (
 )
 from pymsa.util.fasta import read_fasta_file_as_list_of_pairs
 
+# non-frozen fallback is relative to this file (Program/../tools), not a
+# hardcoded drive path, so running from source also works on a different
+# machine/OS - the "tools" folder still needs an OS-appropriate MUSCLE
+# binary in it (the Windows one bundled here is a .exe, which won't run
+# on macOS/Linux)
+_MUSCLE_NAME = "muscle.exe" if platform.system() == "Windows" else "muscle"
 
 if getattr(sys, "frozen", False):
-    MUSCLE_EXE = os.path.join(sys._MEIPASS, "tools", "muscle.exe")
+    MUSCLE_EXE = os.path.join(sys._MEIPASS, "tools", _MUSCLE_NAME)
 else:
-    MUSCLE_EXE = r"B:\Stage\tools\muscle.exe"
+    MUSCLE_EXE = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools",
+        _MUSCLE_NAME)
 
 
 def merge_fasta_files(input_paths, output_path):
@@ -30,8 +39,65 @@ def merge_fasta_files(input_paths, output_path):
     return len(records)
 
 
+def _load_accession_metadata(metadata_path):
+    """
+    Parses a _metadata.txt file (see output.write_metadata_txt) into
+    {accession: (species, marker)}, used to relabel FASTA headers with
+    more readable info than a bare accession number.
+    """
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    lookup = {}
+    for block in text.split("\n\n" + ("-" * 40) + "\n\n"):
+        species = marker = accession = None
+        for line in block.splitlines():
+            label, sep, value = line.partition(":")
+            if not sep:
+                continue
+            label = label.strip()
+            value = value.strip()
+            if label == "Species":
+                species = value
+            elif label == "Marker":
+                marker = value
+            elif label == "Accession":
+                accession = value
+
+        if accession and accession != "-":
+            lookup[accession] = (species, marker)
+
+    return lookup
+
+
+def _relabel_with_species_marker(aligned_path, accession_lookup, output_path):
+    """
+    Rewrites an aligned FASTA file's headers to '>accession species marker'
+    wherever the accession is found in accession_lookup (see
+    _load_accession_metadata), leaving any unmatched record as
+    '>accession' unchanged. Returns how many headers were actually
+    relabeled.
+    """
+    labels_applied = 0
+
+    with open(aligned_path, encoding="utf-8") as f_in, \
+            open(output_path, "w", encoding="utf-8") as f_out:
+        for record in SeqIO.parse(f_in, "fasta"):
+            accession = record.id
+            match = accession_lookup.get(accession)
+            if match:
+                species, marker = match
+                header = f">{accession} {species} {marker}"
+                labels_applied += 1
+            else:
+                header = f">{accession}"
+            f_out.write(header + "\n" + str(record.seq) + "\n")
+
+    return labels_applied
+
+
 def run_msa(input_file, output_dir, show_grid, show_count, show_consensus,
-            revcomp_ids=None):
+            revcomp_ids=None, show_species_marker=False):
     muscle_input = input_file
 
     if revcomp_ids:
@@ -51,14 +117,30 @@ def run_msa(input_file, output_dir, show_grid, show_count, show_consensus,
         check=True
     )
 
+    display_file = aligned_file
+    labels_applied = 0
+
+    if show_species_marker:
+        # metadata.txt sits next to the original FASTA with a matching
+        # base name - see output.write_results()
+        meta_path = os.path.splitext(input_file)[0] + "_metadata.txt"
+        if os.path.isfile(meta_path):
+            accession_lookup = _load_accession_metadata(meta_path)
+            labeled_file = os.path.join(
+                output_dir, os.path.basename(input_file) + "_labeled.fasta")
+            labels_applied = _relabel_with_species_marker(
+                aligned_file, accession_lookup, labeled_file)
+            if labels_applied:
+                display_file = labeled_file
+
     mv = MsaViz(
-        aligned_file, color_scheme="Clustal",
+        display_file, color_scheme="Clustal",
         show_grid=show_grid, show_count=show_count, show_consensus=show_consensus
     )
     report_path = os.path.join(output_dir, "msa_report.png")
     mv.savefig(report_path)
 
-    return report_path, aligned_file
+    return report_path, aligned_file, labels_applied
 
 
 def _max_possible_sum_of_pairs(msa, substitution_matrix):
@@ -374,6 +456,19 @@ def build_msa_tab(parent, root=None, report_items=None):
         MSA_run, text="Show the consensus on the MSA results", variable=consensus_var
     ).pack(anchor="w", pady=2)
 
+    show_species_marker_var = ctk.BooleanVar(value=False)
+    ctk.CTkSwitch(
+        MSA_run, text="Show species & marker with accession in labels",
+        variable=show_species_marker_var
+    ).pack(anchor="w", pady=(8, 2))
+
+    ctk.CTkLabel(
+        MSA_run,
+        text='Needs "Save metadata" to have been on when these sequences '
+             "were fetched - falls back to accession only otherwise.",
+        text_color="gray", font=("Arial", 11)
+    ).pack(anchor="w", pady=(0, 5))
+
     status_label = ctk.CTkLabel(MSA_run, text="")
     status_label.pack(anchor="w", pady=(10, 0))
 
@@ -530,10 +625,12 @@ def build_msa_tab(parent, root=None, report_items=None):
     # RUN (background thread, so a slow MUSCLE alignment doesn't freeze
     # the rest of the app while it runs)------------------------------------
 
-    def run_worker(input_file, out_dir, grid, count, consensus, revcomp_ids):
+    def run_worker(input_file, out_dir, grid, count, consensus, revcomp_ids,
+                    show_species_marker):
         try:
-            report_path, aligned_file = run_msa(
-                input_file, out_dir, grid, count, consensus, revcomp_ids)
+            report_path, aligned_file, labels_applied = run_msa(
+                input_file, out_dir, grid, count, consensus, revcomp_ids,
+                show_species_marker)
         except subprocess.CalledProcessError as e:
             parent.after(0, lambda: status_label.configure(
                 text=f"MSA failed: {e}"))
@@ -546,7 +643,12 @@ def build_msa_tab(parent, root=None, report_items=None):
             return
 
         def finish():
-            status_label.configure(text="Done.")
+            if show_species_marker and not labels_applied:
+                status_label.configure(
+                    text="Done - no saved metadata found for this file, "
+                         "so labels still show accession only.")
+            else:
+                status_label.configure(text="Done.")
             run_button.configure(state="normal")
             show_results(report_path)
             score_file_path.set(aligned_file)
@@ -570,7 +672,7 @@ def build_msa_tab(parent, root=None, report_items=None):
             target=run_worker,
             args=(file_path.get(), output_dir.get(),
                   grid_var.get(), count_var.get(), consensus_var.get(),
-                  revcomp_ids),
+                  revcomp_ids, show_species_marker_var.get()),
             daemon=True
         )
         thread.start()

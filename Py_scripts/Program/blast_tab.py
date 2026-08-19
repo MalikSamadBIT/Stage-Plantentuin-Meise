@@ -1,5 +1,6 @@
 import ctypes
 import os
+import platform
 import subprocess
 import sys
 import tempfile
@@ -10,16 +11,33 @@ import customtkinter as ctk
 import pandas as pd
 
 import database
+import report_docx
+import report_pdf
 
 # Same frozen-vs-dev resolution as MUSCLE_EXE in msa_tab.py - see that file
-# for why sys._MEIPASS covers both PyInstaller packaging modes.
+# for why sys._MEIPASS covers both PyInstaller packaging modes. The
+# non-frozen fallback is relative to this file (Program/../tools) rather
+# than a hardcoded drive path, so it also works when running from source
+# on a different machine/OS (e.g. building on macOS/Linux) - the "tools"
+# folder itself still needs OS-appropriate BLAST+ binaries in it, since
+# the ones bundled for Windows are .exe files that won't run elsewhere.
 if getattr(sys, "frozen", False):
     BLAST_BIN = os.path.join(sys._MEIPASS, "tools", "blast", "bin")
 else:
-    BLAST_BIN = r"B:\Stage\tools\blast\bin"
+    BLAST_BIN = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools",
+        "blast", "bin")
+
+# BLAST+'s Windows binaries are "makeblastdb.exe"/"blastn.exe"/etc.; on
+# macOS/Linux the same tools ship with no extension at all
+_EXE_SUFFIX = ".exe" if platform.system() == "Windows" else ""
 
 
 def _blast_safe_path(path):
+    if platform.system() != "Windows":
+        # the short-path-name quirk this works around is Windows-only -
+        # ctypes.windll doesn't even exist on macOS/Linux
+        return path
 
     directory, name = os.path.split(path)
     if " " not in directory or not os.path.isdir(directory):
@@ -45,6 +63,7 @@ def build_blast_tab(parent, root=None):
     db_path = ctk.StringVar()
     blast_db_path = ctk.StringVar()
     full_df = None
+    last_blast_result = {}  # set by blast_succeeded() - read by export_results()
 
     # TOP BAR----------------------------------------------------------------
 
@@ -139,6 +158,12 @@ def build_blast_tab(parent, root=None):
         run_bar, text="Run BLAST", command=lambda: run_blast()
     )
     run_button.pack(side="left", padx=(0, 5))
+
+    export_button = ctk.CTkButton(
+        run_bar, text="Export Results...",
+        command=lambda: export_results(), state="disabled"
+    )
+    export_button.pack(side="left")
 
     ctk.CTkLabel(parent, textvariable=db_path, text_color="gray").pack(
         anchor="w", padx=10, pady=10)
@@ -241,7 +266,7 @@ def build_blast_tab(parent, root=None):
         try:
             # build a nucleotide BLAST database from the FASTA file
             subprocess.run(
-                [os.path.join(BLAST_BIN, "makeblastdb.exe"),
+                [os.path.join(BLAST_BIN, f"makeblastdb{_EXE_SUFFIX}"),
                  "-in", _blast_safe_path(path), "-dbtype", "nucl",
                  "-out", _blast_safe_path(db_out)],
                 capture_output=True, text=True, check=True
@@ -301,6 +326,11 @@ def build_blast_tab(parent, root=None):
                 f" (batch of {query_count} "
                 f"quer{'y' if query_count == 1 else 'ies'})"
             )
+            query_source = (
+                f"batch of {query_count} "
+                f"quer{'y' if query_count == 1 else 'ies'} from "
+                f"{os.path.basename(loaded_file)}"
+            )
         else:
             query_seq = query_entry.get().strip()
             if not query_seq:
@@ -314,6 +344,7 @@ def build_blast_tab(parent, root=None):
 
             query_arg = _blast_safe_path(os.path.abspath(query_fasta))
             batch_note = ""
+            query_source = "single query"
 
         blast_program = blast_type_var.get()
         db_arg = _blast_safe_path(blast_db_path.get())
@@ -325,7 +356,7 @@ def build_blast_tab(parent, root=None):
         def do_run():
             try:
                 result = subprocess.run(
-                    [os.path.join(BLAST_BIN, f"{blast_program}.exe"),
+                    [os.path.join(BLAST_BIN, f"{blast_program}{_EXE_SUFFIX}"),
                      "-query", query_arg, "-db", db_arg, "-outfmt", "0"],
                     capture_output=True, text=True, check=True
                 )
@@ -342,7 +373,7 @@ def build_blast_tab(parent, root=None):
                 return
             parent.after(
                 0, lambda: blast_succeeded(
-                    result.stdout, blast_program, batch_note))
+                    result.stdout, blast_program, batch_note, query_source))
 
         threading.Thread(target=do_run, daemon=True).start()
 
@@ -351,8 +382,46 @@ def build_blast_tab(parent, root=None):
         set_output(error_text)
         run_button.configure(state="normal")
 
-    def blast_succeeded(stdout, blast_program, batch_note):
+    def blast_succeeded(stdout, blast_program, batch_note, query_source):
         set_output(stdout)
         status_label.configure(
             text=f"{blast_program} complete.{batch_note}", text_color="white")
         run_button.configure(state="normal")
+
+        last_blast_result.clear()
+        last_blast_result.update({
+            "blast_program": blast_program,
+            "database": os.path.basename(blast_db_path.get()),
+            "query_source": query_source,
+            "stdout": stdout,
+        })
+        export_button.configure(state="normal")
+
+    def export_results():
+        if not last_blast_result:
+            status_label.configure(text="Run a BLAST search first.")
+            return
+
+        path = filedialog.asksaveasfilename(
+            parent=root,
+            title="Export BLAST results",
+            defaultextension=".docx",
+            filetypes=[
+                ("Word document", "*.docx"), ("PDF file", "*.pdf"),
+                ("All files", "*.*")
+            ]
+        )
+        if not path:
+            return
+
+        try:
+            if os.path.splitext(path)[1].lower() == ".pdf":
+                report_pdf.build_blast_pdf(path, last_blast_result)
+            else:
+                report_docx.build_blast_docx(path, last_blast_result)
+        except Exception as e:
+            status_label.configure(text=f"Export failed: {e}")
+            return
+
+        status_label.configure(
+            text=f"Exported results to {os.path.basename(path)}.")
