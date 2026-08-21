@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+*.zip
 Py_scripts/Program/__pycache__/bold_client.cpython-313.pyc
 Py_scripts/Program/__pycache__/common.cpython-313.pyc
 Py_scripts/Program/__pycache__/gui.cpython-313.pyc
